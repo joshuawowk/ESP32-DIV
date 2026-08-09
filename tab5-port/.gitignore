@@ -1,0 +1,10 @@
+# PlatformIO build output
+*/.pio/
+.pio/
+# Isolated core snapshot (hardlinks of ~/.platformio; regenerate with `make core`)
+.pio-core/
+# build logs
+**/build.log
+# Python bytecode cache
+__pycache__/
+*.pyc
