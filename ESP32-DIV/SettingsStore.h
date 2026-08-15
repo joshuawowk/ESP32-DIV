@@ -23,6 +23,10 @@ struct AppSettings {
   uint16_t touchYMin = TOUCH_Y_MIN;
   uint16_t touchYMax = TOUCH_Y_MAX;
 
+  // Tab5 GT911 capacitive sensitivity level: 0 = most sensitive .. 4 = least.
+  // Default 3 (firm) — the panel is otherwise over-eager. Ignored on non-Tab5.
+  uint8_t  touchSensitivity = 3;
+
 };
 
 struct AccentOption {

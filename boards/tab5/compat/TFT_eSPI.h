@@ -56,6 +56,47 @@ class TFT_eSprite : public lgfx::LGFX_Sprite {
   TFT_eSprite(LovyanGFX* parent = nullptr) : lgfx::LGFX_Sprite(parent) {}
 };
 
+// ---- GT911 touch sensitivity (raise thresholds = less sensitive) ----
+// Reduces the Tab5's over-eager capacitive touch by raising the GT911
+// Screen_Touch_Level (0x8053) / Screen_Leave_Level (0x8054) config registers.
+// Uses LovyanGFX's i2c on the same already-initialized port M5GFX owns (I2C_NUM_1,
+// SDA31/SCL32) — never Arduino Wire1 (it maps to the same port on P4 and would
+// collide). Config is written to RAM only (0x8047 left untouched, so the GT911
+// does not burn its NVM); must be re-applied after each tft.init().
+// level 0 = most sensitive (factory-ish) .. 4 = least sensitive.
+static inline bool tab5Gt911SetSensitivityLevel(uint8_t level) {
+  static const uint8_t kTouch[5] = {0x38, 0x50, 0x68, 0x80, 0x98};
+  if (level > 4) level = 4;
+  const uint8_t touch = kTouch[level];
+  const uint8_t leave = (touch > 0x18) ? (uint8_t)(touch - 0x18) : 0x10;
+
+  constexpr int      PORT = 1;
+  constexpr uint32_t FREQ = 400000;
+  constexpr size_t   CFGLEN = 184;          // 0x8047..0x80FE
+  const uint8_t addrs[2] = {0x14, 0x5D};
+  uint8_t addr = 0;
+  for (uint8_t a : addrs) {
+    const uint8_t probe[2] = {0x80, 0x40};
+    uint8_t t = 0;
+    if (lgfx::i2c::transactionWriteRead(PORT, a, probe, 2, &t, 1, FREQ).has_value()) { addr = a; break; }
+  }
+  if (!addr) return false;
+
+  uint8_t buf[2 + CFGLEN + 2];
+  buf[0] = 0x80; buf[1] = 0x47;
+  const uint8_t rd[2] = {buf[0], buf[1]};
+  if (!lgfx::i2c::transactionWriteRead(PORT, addr, rd, 2, &buf[2], CFGLEN, FREQ).has_value()) return false;
+
+  buf[2 + (0x8053 - 0x8047)] = touch;       // -> buf[14]
+  buf[2 + (0x8054 - 0x8047)] = leave;       // -> buf[15]
+
+  uint8_t sum = 0;
+  for (size_t i = 0; i < CFGLEN; ++i) sum += buf[2 + i];
+  buf[2 + CFGLEN]     = (uint8_t)((~sum) + 1);   // checksum @ 0x80FF
+  buf[2 + CFGLEN + 1] = 0x01;                    // config-fresh @ 0x8100
+  return lgfx::i2c::transactionWrite(PORT, addr, buf, sizeof(buf), FREQ).has_value();
+}
+
 #if TAB5_SCALED_UI
 // ------------------------- scaled (offscreen canvas) -------------------------
 class TFT_eSPI : public lgfx::LGFX_Sprite {
@@ -104,10 +145,11 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
   }
 
   // Blit the canvas to the panel, scaled and centered (serialized vs touch reads).
+  // Anti-aliased zoom smooths the 3x upscale (less blocky text) vs nearest-neighbor.
   void flush() {
     if (_panelMux) xSemaphoreTake(_panelMux, portMAX_DELAY);
-    pushRotateZoom(&_panel, _panel.width() * 0.5f, _panel.height() * 0.5f,
-                   0.0f, _scale, _scale);
+    pushRotateZoomWithAA(&_panel, _panel.width() * 0.5f, _panel.height() * 0.5f,
+                         0.0f, _scale, _scale);
     if (_panelMux) xSemaphoreGive(_panelMux);
   }
 
@@ -128,6 +170,12 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
   void setBrightness(uint8_t b) {
     if (_panelMux) xSemaphoreTake(_panelMux, portMAX_DELAY);
     _panel.setBrightness(b);
+    if (_panelMux) xSemaphoreGive(_panelMux);
+  }
+
+  void setTouchSensitivity(uint8_t level) {
+    if (_panelMux) xSemaphoreTake(_panelMux, portMAX_DELAY);
+    tab5Gt911SetSensitivityLevel(level);   // serialize GT911 i2c vs touch reads
     if (_panelMux) xSemaphoreGive(_panelMux);
   }
   void setRotation(uint8_t) {}     // logical canvas orientation is fixed
@@ -183,6 +231,7 @@ class TFT_eSPI : public M5GFX {
     if (!M5GFX::getTouch(&px, &py)) return false;
     x = (int)px; y = (int)py; return true;
   }
+  void setTouchSensitivity(uint8_t level) { tab5Gt911SetSensitivityLevel(level); }
   inline void writecommand(uint8_t) {}
   inline void writedata(uint8_t) {}
   inline uint16_t getTouchRawZ() { lgfx::touch_point_t tp; return (M5GFX::getTouchRaw(&tp, 1) > 0) ? 4095 : 0; }

@@ -1624,14 +1624,24 @@ static int  sel = 0;
 static bool dirtySettings = false;
 static bool uiDirty = false;
 
-static const char* items[] = {"Brightness", "Theme", "Accent", "NeoPixel", "Auto Scan"};
+static const char* items[] = {"Brightness", "Theme", "Accent", "NeoPixel", "Auto Scan",
+#if defined(BOARD_TAB5)
+  "Touch",
+#endif
+};
 static const int N = sizeof(items)/sizeof(items[0]);
+#if defined(BOARD_TAB5)
+static const int ROW_TOUCH = 5;   // index of the "Touch" (GT911 sensitivity) row
+#endif
 
 static uint8_t  last_brightness;
 static Theme    last_theme;
 static uint8_t  last_accent;
 static bool     last_neopixel;
 static bool     last_autoScan;
+#if defined(BOARD_TAB5)
+static uint8_t  last_touchSens;
+#endif
 static int      last_sel;
 
 static bool dragging = false;
@@ -1870,6 +1880,33 @@ static void drawSwitchRow(bool on, bool selected, int row) {
 static void drawNeoPixel(bool on, bool selected) { drawSwitchRow(on, selected, 3); }
 static void drawAutoScan(bool on, bool selected) { drawSwitchRow(on, selected, 4); }
 
+#if defined(BOARD_TAB5)
+static const char* touchLevelName(uint8_t lvl) {
+  static const char* names[5] = {"Highest", "High", "Medium", "Low", "Lowest"};
+  return names[lvl > 4 ? 4 : lvl];
+}
+static void drawTouchWidget(uint8_t level, bool selected) {
+  if (level > 4) level = 4;
+  tft.startWrite();
+  Rect r = rowRect(ROW_TOUCH);
+  tft.fillRect(r.x + LABEL_W, r.y + 2, r.w - LABEL_W - 6, r.h - 4, UI_BG);   // wipe value area
+  int bw = 84, bh = r.h - 8;
+  int bx = r.x + r.w - bw - 2, by = r.y + 4;
+  tft.fillRoundRect(bx, by, bw, bh, 4, cardBG);
+  tft.drawRoundRect(bx, by, bw, bh, 4, selected ? UI_ICON : cardEdge);
+  setLabelFont();
+  tft.setTextColor(textStrong, cardBG);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString(touchLevelName(level), bx + bw/2, by + bh/2, 2);
+  tft.setTextDatum(TL_DATUM);
+  tft.endWrite();
+}
+static void drawTouchRow(uint8_t level, bool selected) {
+  drawCardStatic(ROW_TOUCH, selected);
+  drawTouchWidget(level, selected);
+}
+#endif  // BOARD_TAB5
+
 static Rect backRect(){
   int h = tft.height();
   int bwTotal = SCREEN_W - PAD_X*2;
@@ -1935,6 +1972,9 @@ static void drawAll() {
   drawNeoPixel(s.neopixelEnabled, sel==3);
   bool autoScan = (s.autoWifiScan || s.autoBleScan);
   drawAutoScan(autoScan, sel==4);
+#if defined(BOARD_TAB5)
+  drawTouchRow(s.touchSensitivity, sel==ROW_TOUCH);
+#endif
 
   drawFooter(false, false);
 
@@ -1944,6 +1984,9 @@ static void drawAll() {
   last_accent     = s.accentColor;
   last_neopixel   = s.neopixelEnabled;
   last_autoScan     = autoScan;
+#if defined(BOARD_TAB5)
+  last_touchSens  = s.touchSensitivity;
+#endif
   uiDirty = false;
 }
 
@@ -1964,6 +2007,9 @@ static void redrawIfChanged() {
     drawCardStatic(3, sel==3);  drawSwitchWidgetRow(s.neopixelEnabled, sel==3, 3);
     bool autoScan = (s.autoWifiScan || s.autoBleScan);
     drawCardStatic(4, sel==4);  drawSwitchWidgetRow(autoScan, sel==4, 4);
+#if defined(BOARD_TAB5)
+    drawCardStatic(ROW_TOUCH, sel==ROW_TOUCH);  drawTouchWidget(s.touchSensitivity, sel==ROW_TOUCH);
+#endif
     last_sel = sel;
   } else {
     if (s.brightness != last_brightness) {
@@ -1983,6 +2029,12 @@ static void redrawIfChanged() {
       drawThemeWidget(s.theme, sel==1);
       last_theme = s.theme;
     }
+#if defined(BOARD_TAB5)
+    if (s.touchSensitivity != last_touchSens) {
+      drawTouchWidget(s.touchSensitivity, sel==ROW_TOUCH);
+      last_touchSens = s.touchSensitivity;
+    }
+#endif
   }
 
   uiDirty = false;
@@ -2042,6 +2094,20 @@ static bool applyAutoScan(bool en){
   lastChangeMs = millis();
   return true;
 }
+
+#if defined(BOARD_TAB5)
+static bool applyTouchSensitivity(uint8_t level){
+  if (level > 4) level = 4;
+  auto& s = settings();
+  if (s.touchSensitivity == level) return false;
+  s.touchSensitivity = level;
+  ::setTouchSensitivity(level);
+  dirtySettings = true;
+  uiDirty = true;
+  lastChangeMs = millis();
+  return true;
+}
+#endif
 
 static void handleTouch() {
   int tx, ty;
@@ -2157,6 +2223,18 @@ static void handleTouch() {
       }
     }
   }
+#if defined(BOARD_TAB5)
+  else if (sel == ROW_TOUCH) {
+    Rect rr = rowRect(ROW_TOUCH);
+    if (tx >= rr.x && tx <= rr.x+rr.w && ty >= rr.y && ty <= rr.y+rr.h) {
+      uint32_t now = millis();
+      if (now - lastToggleMs > 250) {
+        applyTouchSensitivity((uint8_t)((s.touchSensitivity + 1) % 5));   // tap cycles level
+        lastToggleMs = now;
+      }
+    }
+  }
+#endif
 }
 
 void setup(){
@@ -2211,6 +2289,9 @@ void loop(){
     else if (sel==2)                   { applyAccent((s.accentColor + ACCENT_PRESET_COUNT - 1) % ACCENT_PRESET_COUNT); }
     else if (sel==3)                   { applyNeoPixel(false); }
     else if (sel==4)                   { applyAutoScan(false); }
+#if defined(BOARD_TAB5)
+    else if (sel==ROW_TOUCH && s.touchSensitivity>0) { applyTouchSensitivity(s.touchSensitivity-1); }
+#endif
     changedByButtons=true;
     lastActionMs = now;
   }
@@ -2221,6 +2302,9 @@ void loop(){
     else if (sel==2)                   { applyAccent((s.accentColor + 1) % ACCENT_PRESET_COUNT); }
     else if (sel==3)                   { applyNeoPixel(true); }
     else if (sel==4)                   { applyAutoScan(true); }
+#if defined(BOARD_TAB5)
+    else if (sel==ROW_TOUCH && s.touchSensitivity<4) { applyTouchSensitivity(s.touchSensitivity+1); }
+#endif
     changedByButtons=true;
     lastActionMs = now;
   }

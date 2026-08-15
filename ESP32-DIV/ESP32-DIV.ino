@@ -31,6 +31,14 @@ void setBrightness(uint8_t value) {
 #endif
 }
 
+void setTouchSensitivity(uint8_t level) {
+#if defined(BOARD_TAB5)
+  tft.setTouchSensitivity(level);   // raises GT911 threshold; RAM-only, re-applied each boot
+#else
+  (void)level;
+#endif
+}
+
 bool feature_exit_requested = false;
 
 const int NUM_MENU_ITEMS = 8;
@@ -4539,7 +4547,8 @@ void setup() {
 
   initSDCard();
 
-#if BOARD_HAS_ESP32S3
+#if BOARD_HAS_ESP32S3 || defined(BOARD_TAB5)
+  // Tab5 SD (dedicated SPI bus) mounts fine, so load persisted settings.
   settingsLoad();
 #else
   // Avoid SD mount via settingsLoad on v1 (same crash as step 3).
@@ -4548,6 +4557,9 @@ void setup() {
 #endif
   applyThemeToPalette(settings().theme);
   setBrightness(settings().brightness);
+#if defined(BOARD_TAB5)
+  setTouchSensitivity(settings().touchSensitivity);   // apply GT911 threshold (after tft.init)
+#endif
 
 #if HAS_PCF8574_BUTTONS
   if (!initPcf8574Buttons()) {

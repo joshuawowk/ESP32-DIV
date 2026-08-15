@@ -39,12 +39,6 @@ namespace BleJammer {
   void exit() {}
 }
 
-namespace BleSkimmer {
-  void bleSkimmerLoop() { unavailableLoop(); }
-  void bleSkimmerSetup() { drawUnavailable("BLE Skimmer"); }
-  void exit() {}
-}
-
 namespace BleSniffer {
   void blesnifferLoop() { unavailableLoop(); }
   void blesnifferSetup() { drawUnavailable("BLE Sniffer"); }

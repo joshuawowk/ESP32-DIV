@@ -43,7 +43,9 @@ SD/WiFi stack and 16 MB partition layout are proven.
 | WiFi deauth / beacon / karma | **Gated (M2a)** | raw `esp_wifi_80211_tx` unsupported over hosted → shows "not available" screen |
 | WiFi promiscuous / sniff | **Gated (M2a)** | promiscuous unsupported over hosted → "not available" screen |
 | BLE scan | **Built (M3)** — IDF NimBLE C API | `hostedInitBLE()` + `nimble_port_init` + active `ble_gap_disc` |
-| BLE advertise (spoofer/sourapple/airtag) | **Stubbed** — portable to IDF NimBLE | NimBLE works on P4; needs C-API reimplementation |
+| BLE advertise (Spoofer/SourApple/AirTag) | **Built** — IDF NimBLE C API | `ble_gap_adv_set_data`/`start` + `ble_hs_id_set_rnd` MAC rotation (`tab5_ble_adv.cpp`) |
+| BLE skimmer detector | **Built** — IDF NimBLE scan | signature match on advertised names (`tab5_ble_skimmer.cpp`) |
+| Touch sensitivity | **Adjustable** — Settings ▸ Touch | GT911 threshold via lgfx i2c; persisted `touchSensitivity` |
 | BLE jammer / low-level | **Blocked** | needs raw radio control |
 | Bluetooth Classic | **Blocked (platform)** | P4/C6 have no BT Classic |
 | SubGHz (CC1101) | **Gated** | external module, not on Tab5 |
