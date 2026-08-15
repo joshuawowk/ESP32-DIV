@@ -33,12 +33,6 @@ namespace AirTagSniffer {
   void exit() {}
 }
 
-namespace AirTagSpoofer {
-  void airTagLoop() { unavailableLoop(); }
-  void airTagSetup() { drawUnavailable("AirTag Spoofer"); }
-  void exit() {}
-}
-
 namespace BleJammer {
   void blejamLoop() { unavailableLoop(); }
   void blejamSetup() { drawUnavailable("BLE Jammer"); }
@@ -55,12 +49,6 @@ namespace BleSniffer {
   void blesnifferLoop() { unavailableLoop(); }
   void blesnifferSetup() { drawUnavailable("BLE Sniffer"); }
   void exit() {}
-}
-
-namespace BleSpoofer {
-  void exit() {}
-  void spooferLoop() { unavailableLoop(); }
-  void spooferSetup() { drawUnavailable("BLE Spoofer"); }
 }
 
 namespace EsbReplay {
@@ -143,12 +131,6 @@ namespace Scanner {
   void exit() {}
   void scannerLoop() { unavailableLoop(); }
   void scannerSetup() { drawUnavailable("2.4GHz Scanner"); }
-}
-
-namespace SourApple {
-  void exit() {}
-  void sourappleLoop() { unavailableLoop(); }
-  void sourappleSetup() { drawUnavailable("SourApple"); }
 }
 
 namespace SubBrute {

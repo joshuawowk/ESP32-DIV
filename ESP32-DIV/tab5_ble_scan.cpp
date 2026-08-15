@@ -49,6 +49,7 @@ static volatile bool s_synced = false;
 static uint8_t s_ownAddrType = 0;
 static volatile bool s_scanning = false;
 static bool s_bringupFailed = false;   // C6 hosted BLE bring-up failed this session
+static volatile bool s_wantScan = false;  // scan feature active (gate auto-start-on-sync)
 
 // UI state
 static int s_sel = 0;
@@ -122,7 +123,7 @@ static void on_sync() {
   ble_hs_util_ensure_addr(0);
   if (ble_hs_id_infer_auto(0, &s_ownAddrType) != 0) return;
   s_synced = true;
-  startScan();
+  if (s_wantScan) startScan();   // only auto-start when the scan feature is active
 }
 static void on_reset(int /*reason*/) { s_synced = false; s_scanning = false; }
 static void host_task(void* /*param*/) {
@@ -140,6 +141,7 @@ static bool ensureHost() {
   s_hostStarted = true;
   return true;
 }
+
 
 // ---- UI ----
 static void drawList() {
@@ -209,6 +211,7 @@ static void drawList() {
 
 // ---- public entrypoints (match config.h namespace BleScan) ----
 void bleScanSetup() {
+  s_wantScan = true;   // allow on_sync to auto-start the scan
   pauseBackgroundRadioTasks();
   setTouchButtonInputEnabled(true);
   // nav slots: left, down, center, up, right
@@ -252,6 +255,7 @@ void bleScanLoop() {
 }
 
 void exit() {
+  s_wantScan = false;
   if (s_scanning) {
     ble_gap_disc_cancel();
     s_scanning = false;
@@ -270,5 +274,12 @@ void startBackgroundScanner() {
 }
 
 }  // namespace BleScan
+
+// ---- shared BLE host API (global; used by tab5_ble_adv.cpp; see tab5_ble.h) ----
+// Defined at global scope so the symbols are ::tab5BleEnsureHost etc.; they reach
+// the BleScan file-static host bring-up via namespace-qualified access (same TU).
+bool tab5BleEnsureHost() { return BleScan::ensureHost(); }
+bool tab5BleSynced() { return BleScan::s_synced; }
+uint8_t tab5BleOwnAddrType() { return BleScan::s_ownAddrType; }
 
 #endif  // BOARD_TAB5
