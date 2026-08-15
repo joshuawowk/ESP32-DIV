@@ -5,7 +5,13 @@
 
 // #define BOARD_CYD
 // #define BOARD_ESP32_DIV_V1
+// #define BOARD_TAB5            // M5Stack Tab5 (ESP32-P4) — usually passed via build flag
+//
+// Default target when no BOARD_* is selected here or via -D build flags.
+#if !defined(BOARD_TAB5) && !defined(BOARD_CYD) && \
+    !defined(BOARD_ESP32_DIV_V1) && !defined(BOARD_ESP32_DIV_V2)
 #define BOARD_ESP32_DIV_V2
+#endif
 
 // Set to 0 to hide the on-screen touch nav bar (5 footer buttons).
 // Touch button input will still work when this is disabled.
@@ -21,6 +27,7 @@
 //#define TOUCH_Y_MIN 240
 //#define TOUCH_Y_MAX 3800
 
-#if !defined(BOARD_ESP32_DIV_V2) && !defined(BOARD_CYD) && !defined(BOARD_ESP32_DIV_V1)
+#if !defined(BOARD_ESP32_DIV_V2) && !defined(BOARD_CYD) && \
+    !defined(BOARD_ESP32_DIV_V1) && !defined(BOARD_TAB5)
 #define BOARD_ESP32_DIV_V2
 #endif

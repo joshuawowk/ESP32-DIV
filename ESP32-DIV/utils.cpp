@@ -475,6 +475,11 @@ const float R2 = 100000.0;
 
 float readBatteryVoltage()
 {
+#if !defined(BATTERY_ADC_PIN) || (BATTERY_ADC_PIN < 0)
+  // No battery-sense ADC pin on this board (e.g. Tab5). Calling analogRead* with
+  // pin -1 (=255) faults __analogInit on the ESP32-P4, so short-circuit here.
+  return 0.0f;
+#else
   static bool adcInitialized = false;
 
   if (!adcInitialized)
@@ -495,6 +500,7 @@ float readBatteryVoltage()
   float avgMv = sum / (float)sampleCount;
 
   return (avgMv / 1000.0f) * 2.0f;
+#endif
 }
 
 float readInternalTemperature() {
@@ -1302,7 +1308,7 @@ uint16_t yDraw = DISPLAY_HEIGHT - BOT_FIXED_AREA - TEXT_HEIGHT;
 
 uint16_t xPos = 0;
 
-byte data = 0;
+uint8_t data = 0;
 
 boolean change_colour = 1;
 boolean selected = 1;
@@ -1311,7 +1317,7 @@ boolean terminalActive = true;
 int blank[19];
 
 long baudRates[] = {9600, 19200, 38400, 57600, 115200};
-byte baudIndex = 0;
+uint8_t baudIndex = 0;
 
 static int terminalContentBottom() {
   return featureHasTouchNavBar() ? (int)touchNavContentBottomY() : DISPLAY_HEIGHT;
@@ -1482,6 +1488,14 @@ void scrollAddress(uint16_t vsp) {
 }
 
 int scroll_line() {
+#if defined(BOARD_TAB5)
+  // The DSI panel has no hardware vertical scroll; scroll the offscreen canvas
+  // region in software and always draw the newest line at the bottom.
+  const int bottomLine = DISPLAY_HEIGHT - terminalBotFixedArea() - TEXT_HEIGHT;
+  tft.scroll(0, -TEXT_HEIGHT);
+  tft.fillRect(0, bottomLine, DISPLAY_WIDTH, TEXT_HEIGHT, TFT_BLACK);
+  return bottomLine;
+#else
   int yTemp = yStart;
   tft.fillRect(0, yStart, blank[(yStart - TOP_FIXED_AREA) / TEXT_HEIGHT], TEXT_HEIGHT, TFT_BLACK);
 
@@ -1493,9 +1507,15 @@ int scroll_line() {
   scrollAddress(yStart);
   delay(1);
   return yTemp;
+#endif
 }
 
 void setupScrollArea(uint16_t tfa, uint16_t bfa) {
+#if defined(BOARD_TAB5)
+  // Restrict software scrolling to the text region (below the header, above the
+  // touch nav bar) so scroll() only shifts terminal text.
+  tft.setScrollRect(0, tfa, DISPLAY_WIDTH, DISPLAY_HEIGHT - tfa - bfa);
+#else
   tft.writecommand(ILI9341_VSCRDEF);
   tft.writedata(tfa >> 8);
   tft.writedata(tfa);
@@ -1503,6 +1523,7 @@ void setupScrollArea(uint16_t tfa, uint16_t bfa) {
   tft.writedata(DISPLAY_HEIGHT - tfa - bfa);
   tft.writedata(bfa >> 8);
   tft.writedata(bfa);
+#endif
 }
 
 void terminalSetup() {
@@ -1528,7 +1549,7 @@ void terminalSetup() {
   yDraw = DISPLAY_HEIGHT - bfa - TEXT_HEIGHT;
   setupScrollArea(TOP_FIXED_AREA, bfa);
 
-  for (byte i = 0; i < 19; i++) blank[i] = 0;
+  for (uint8_t i = 0; i < 19; i++) blank[i] = 0;
 
   terminalUpdateNavLabels();
 }
@@ -1543,7 +1564,7 @@ void terminalLoop() {
   runUI();
 
   if (terminalActive) {
-    byte charCount = 0;
+    uint8_t charCount = 0;
     while (Serial.available() && charCount < 10) {
       data = Serial.read();
       if (data == '\r' || xPos > 231) {

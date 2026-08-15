@@ -13,7 +13,7 @@
 #include "shared.h"
 #include "utils.h"
 
-#if !BOARD_HAS_ESP32S3
+#if !BOARD_HAS_ESP32S3 && !defined(BOARD_TAB5)
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #endif
@@ -23,7 +23,12 @@ TFT_eSPI tft = TFT_eSPI();
 PCF8574 pcf(PCF8574_I2C_ADDR);
 
 void setBrightness(uint8_t value) {
+#if defined(BOARD_TAB5)
+  // Tab5 backlight is driven through the M5GFX/DSI panel.
+  tft.setBrightness(value);
+#else
   ledcWrite(PWM_CHANNEL, value);
+#endif
 }
 
 bool feature_exit_requested = false;
@@ -4509,7 +4514,7 @@ void setup() {
   delay(50);
   Serial.println("[boot] start");
 
-#if !BOARD_HAS_ESP32S3
+#if !BOARD_HAS_ESP32S3 && !defined(BOARD_TAB5)
   // Weak USB / backlight load can brownout classic ESP32 during intro.
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 #endif
@@ -4517,8 +4522,10 @@ void setup() {
   tft.init();
   tft.setRotation(TFT_ROTATION);
 
+#if !defined(BOARD_TAB5)
   ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
   ledcAttachPin(BACKLIGHT_PIN, PWM_CHANNEL);
+#endif
   setBrightness(80);
 
   applyThemeToPalette(settings().theme);

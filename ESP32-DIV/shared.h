@@ -3,14 +3,37 @@
 #include <stdint.h>
 #include "BoardConfig.h"
 
+#if defined(BOARD_TAB5)
+// M5GFX exports global colour constants (BLACK/WHITE/RED/BLUE/GREEN/ORANGE and
+// the TFT_* names) via `using namespace m5gfx::ili9341_colors`. Pull it in here
+// so those names are visible everywhere shared.h is, and so we can avoid
+// redefining (and thus clashing with) them below.
+#include <M5GFX.h>
+#endif
+
 /*──────────────────── Colors ────────────────────*/
+#if defined(BOARD_TAB5)
+// Only define the DIV-specific colours M5GFX does not already provide globally.
+// BLACK/WHITE/RED/BLUE/GREEN/ORANGE, TFT_LIGHTBLUE, TFT_GRAY, TFT_GREEN and
+// TFT_GREENYELLOW come from M5GFX. (ORANGE is M5GFX's static orange here rather
+// than the DIV's dynamic accent uiUniversalColor(); accent theming via ORANGE is
+// a follow-up for the Tab5 UI relayout.)
+const uint16_t GRAY = 0x8410, LIGHT_GRAY = 0xC618, DARK_GRAY = 0x4208;
+uint16_t uiUniversalColor();
+#ifndef TFT_DARKBLUE
+#define TFT_DARKBLUE 0x3166
+#endif
+#ifndef TFTWHITE
+#define TFTWHITE 0xFFFF
+#endif
+#else
 const uint16_t GRAY = 0x8410, BLUE = 0x001F, RED = 0xF800,
                GREEN  = 0xB721, BLACK = 0x0000, WHITE = 0xFFFF,
                LIGHT_GRAY = 0xC618, DARK_GRAY = 0x4208;
 
 uint16_t uiUniversalColor();
 #define ORANGE uiUniversalColor()
-               
+
 #define TFT_DARKBLUE   0x3166
 #define TFT_LIGHTBLUE  0x051F
 #define TFTWHITE       0xFFFF
@@ -24,6 +47,7 @@ uint16_t uiUniversalColor();
 #undef TFT_GREENYELLOW
 #endif
 #define TFT_GREENYELLOW GREEN
+#endif  // BOARD_TAB5
 
 #define BG_Dark        0x20e4
 #define BG_Light       0xf7de
@@ -97,15 +121,34 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 /*──────────────────── Board Selection ────────────────────*/
 // Default is selected in BoardConfig.h. You can also pass a BOARD_* define
 // from your build flags to target a board without editing source.
-#if !defined(BOARD_ESP32_DIV_V2) && !defined(BOARD_CYD) && !defined(BOARD_ESP32_DIV_V1)
+#if !defined(BOARD_ESP32_DIV_V2) && !defined(BOARD_CYD) && \
+    !defined(BOARD_ESP32_DIV_V1) && !defined(BOARD_TAB5)
 #define BOARD_ESP32_DIV_V2
 #endif
 
-#if (defined(BOARD_ESP32_DIV_V2) + defined(BOARD_CYD) + defined(BOARD_ESP32_DIV_V1)) > 1
-#error "Select only one board: BOARD_ESP32_DIV_V2, BOARD_ESP32_DIV_V1, or BOARD_CYD"
+#if (defined(BOARD_ESP32_DIV_V2) + defined(BOARD_CYD) + \
+     defined(BOARD_ESP32_DIV_V1) + defined(BOARD_TAB5)) > 1
+#error "Select only one board: BOARD_ESP32_DIV_V2, BOARD_ESP32_DIV_V1, BOARD_CYD, or BOARD_TAB5"
 #endif
 
-#if defined(BOARD_CYD)
+#if defined(BOARD_TAB5)
+#ifndef ESP32DIV_BOARD_NAME
+#define ESP32DIV_BOARD_NAME "M5Stack Tab5 (ESP32-P4)"
+#endif
+// No PCF8574 D-pad: all input routes through the on-screen touch nav bar.
+#ifndef HAS_PCF8574_BUTTONS
+#define HAS_PCF8574_BUTTONS 0
+#endif
+// P4 is not an S3; this flag also selects the classic-ESP32 static buffer sizes,
+// which is fine on the Tab5 (features needing the large buffers are gated off).
+#ifndef BOARD_HAS_ESP32S3
+#define BOARD_HAS_ESP32S3 0
+#endif
+// External-radio / peripheral hardware is not present on the Tab5.
+#ifndef BOARD_TAB5_NO_EXT_HW
+#define BOARD_TAB5_NO_EXT_HW 1
+#endif
+#elif defined(BOARD_CYD)
 #ifndef ESP32DIV_BOARD_NAME
 #define ESP32DIV_BOARD_NAME "CYD ESP32-2432S028R"
 #endif
@@ -175,7 +218,25 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 /*──────────────────── Touch calibration profiles ────────────────────*/
 /* Factory defaults per board (raw XPT2046 range). Override in BoardConfig.h.
  * User-saved calibration in settings.json overrides when board id matches. */
-#if defined(BOARD_CYD)
+#if defined(BOARD_TAB5)
+// GT911 capacitive touch returns calibrated screen pixels; these are unused but
+// keep the macros defined for code paths that reference them.
+#ifndef TOUCH_PROFILE_ID
+#define TOUCH_PROFILE_ID "TAB5"
+#endif
+#ifndef TOUCH_X_MIN
+#define TOUCH_X_MIN 0
+#endif
+#ifndef TOUCH_X_MAX
+#define TOUCH_X_MAX 719
+#endif
+#ifndef TOUCH_Y_MIN
+#define TOUCH_Y_MIN 0
+#endif
+#ifndef TOUCH_Y_MAX
+#define TOUCH_Y_MAX 1279
+#endif
+#elif defined(BOARD_CYD)
 #ifndef TOUCH_PROFILE_ID
 #define TOUCH_PROFILE_ID "CYD"
 #endif
@@ -242,7 +303,9 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 #endif
 
 #ifndef TFT_ROTATION
-#if defined(BOARD_CYD) || defined(BOARD_ESP32_DIV_V1)
+#if defined(BOARD_TAB5)
+#define TFT_ROTATION 0            // Tab5 native portrait (720x1280)
+#elif defined(BOARD_CYD) || defined(BOARD_ESP32_DIV_V1)
 #define TFT_ROTATION 0
 #else
 #define TFT_ROTATION 2
@@ -355,6 +418,24 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 #endif
 
 /* SD Card */
+#if defined(BOARD_TAB5)
+// Tab5 microSD is on a dedicated SPI bus (must avoid the C6 hosted SDIO pins 8-13).
+#ifndef SD_CS
+#define SD_CS    42
+#endif
+#ifndef SD_MOSI
+#define SD_MOSI  44
+#endif
+#ifndef SD_MISO
+#define SD_MISO  39
+#endif
+#ifndef SD_SCLK
+#define SD_SCLK  43
+#endif
+#ifndef SD_CS_PIN
+#define SD_CS_PIN 42
+#endif
+#endif  // BOARD_TAB5
 #ifndef SD_CS
 #if defined(BOARD_CYD)
 #define SD_CS    5
@@ -391,7 +472,9 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 #define SD_SCLK  12
 #endif
 #endif
-#if !defined(BOARD_CYD) && !defined(BOARD_ESP32_DIV_V1) && !defined(SD_CD)
+// Tab5 has no wired card-detect on a known GPIO; do NOT fall through to the V2
+// default (pin 38) — that read HIGH would make isSDCardAvailable() always false.
+#if !defined(BOARD_CYD) && !defined(BOARD_ESP32_DIV_V1) && !defined(BOARD_TAB5) && !defined(SD_CD)
 #define SD_CD    38
 #endif
 #ifndef SD_CS_PIN
@@ -470,7 +553,10 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 #endif
 #endif
 
-/* CC1101 (Sub-GHz) */
+/* CC1101 (Sub-GHz) — not present on Tab5. Leaving CC1101_* undefined compiles
+ * out the SD/SPI bus-sharing blocks in utils.cpp so they never touch the P4's
+ * C6 esp-hosted SDIO pins (11/12/13). */
+#if !defined(BOARD_TAB5)
 #ifndef CC1101_SCK
 #if defined(BOARD_CYD)
 #define CC1101_SCK  18
@@ -507,6 +593,7 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 #define CC1101_CS   5
 #endif
 #endif
+#endif  // !BOARD_TAB5 (CC1101 pins)
 
 /* SubGHz (RCSwitch/Replay) data pins (wired to CC1101 GDO pins) */
 // Override these in your board config if your wiring differs.
@@ -662,11 +749,27 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 #endif
 
 /*──────────────────── Display & Touch ────────────────────*/
+// On the Tab5 the UI is authored for a 240x320 logical canvas and scale-blitted
+// to the 720x1280 panel (see boards/tab5/compat/TFT_eSPI.h). With TAB5_SCALED_UI
+// the logical size is 240x320; without it the app draws natively at 720x1280.
+#if defined(BOARD_TAB5)
+#ifndef TAB5_SCALED_UI
+#define TAB5_SCALED_UI 1
+#endif
+#endif
 #ifndef TFT_WIDTH
+#if defined(BOARD_TAB5) && !TAB5_SCALED_UI
+#define TFT_WIDTH 720
+#else
 #define TFT_WIDTH 240
 #endif
+#endif
 #ifndef TFT_HEIGHT
+#if defined(BOARD_TAB5) && !TAB5_SCALED_UI
+#define TFT_HEIGHT 1280
+#else
 #define TFT_HEIGHT 320
+#endif
 #endif
 #ifndef STATUS_BAR_Y_OFFSET
 #define STATUS_BAR_Y_OFFSET 0

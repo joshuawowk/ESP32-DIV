@@ -2,40 +2,56 @@
 // config.h — merged from bleconfig.h, wificonfig.h, subconfig.h
 
 /* ───────────── Common includes ───────────── */
+#include "BoardConfig.h"   // resolve BOARD_* early so the guards below see it
 #include <Arduino.h>
-#include <TFT_eSPI.h>
-#include <PCF8574.h>
-#include <XPT2046_Touchscreen.h>
+#include <TFT_eSPI.h>      // Tab5: resolves to the M5GFX compat shim
+#include <PCF8574.h>       // Tab5: resolves to the stub
+#include <XPT2046_Touchscreen.h>  // Tab5: resolves to the stub
 #include <SPI.h>
 #include <Wire.h>
 #include <EEPROM.h>
 #include <Preferences.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#if !defined(BOARD_TAB5)
 #include <RCSwitch.h>
+#endif
 #include <SD.h>
 #include <Update.h>
 #include <ESPmDNS.h>
+#if !defined(BOARD_TAB5)
 #include <nRF24L01.h>
 #include <RF24.h>
+#endif
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_wifi_types.h>
+#if defined(BOARD_TAB5)
+#include <esp_netif.h>   // esp_netif_init() replaces the removed tcpip_adapter API
+#endif
 #include <esp_system.h>
 #include <esp_event.h>
-#include <esp_event_loop.h>
+#if !defined(BOARD_TAB5)
+#include <esp_event_loop.h>   // removed in ESP-IDF 5.x; classic-ESP32 only
+#endif
 #include <nvs_flash.h>
 
+#if !defined(BOARD_TAB5)
 // Use NimBLE for all BLE functionality, via the BleCompat shim which
 // exposes BLEDevice/BLEScan/etc as aliases to NimBLE types.
+// (Tab5/M1: BLE modules are excluded from the build; re-enabled via C6 hosted later.)
 #include "BleCompat.h"
 
+// Bluetooth Classic — does not exist on the ESP32-P4 (Tab5).
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "esp_gap_bt_api.h"
+#endif  // !BOARD_TAB5
 
 #include "arduinoFFT.h"
+#if !defined(BOARD_TAB5)
 #include "ELECHOUSE_CC1101_SRC_DRV.h"
+#endif
 #include "utils.h"
 #include "shared.h"
 

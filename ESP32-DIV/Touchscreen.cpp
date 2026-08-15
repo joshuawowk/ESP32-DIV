@@ -4,6 +4,46 @@
 
 extern TFT_eSPI tft;
 
+#if defined(BOARD_TAB5)
+// -----------------------------------------------------------------------------
+// M5Stack Tab5 touch backend: the GT911 capacitive panel is initialized by
+// M5GFX autodetect and read through tft.getTouch(), which already returns
+// calibrated screen-pixel coordinates (no XPT2046 SPI bus, no map()/calibration).
+// The XPT2046 `ts` / `touchscreenSPI` globals are defined only to satisfy the
+// declarations in Touchscreen.h; they are never used on this board.
+// -----------------------------------------------------------------------------
+SPIClass touchscreenSPI;
+XPT2046_Touchscreen ts(0, 255);
+bool feature_active = false;
+
+static bool tab5ReadTouch(int& x, int& y) {
+  // tab5GetTouch reads the GT911 panel and maps to logical canvas coordinates
+  // (and drives the periodic flush of the scaled UI to the panel).
+  return tft.tab5GetTouch(x, y);
+}
+
+void setupTouchscreen() { /* handled by M5GFX autodetect in tft.init() */ }
+
+bool isTouchDown(uint16_t /*zThresh*/) {
+  int x = 0, y = 0;
+  return tab5ReadTouch(x, y);
+}
+
+bool isTouchDownDismiss(uint16_t zThresh) { return isTouchDown(zThresh); }
+
+bool readTouchRawXY(int16_t& x, int16_t& y, uint16_t /*zThresh*/) {
+  int sx = 0, sy = 0;
+  if (!tab5ReadTouch(sx, sy)) return false;
+  x = (int16_t)sx;
+  y = (int16_t)sy;
+  return true;
+}
+
+bool readTouchXY(int& x, int& y) { return tab5ReadTouch(x, y); }
+bool readTouchXYDismiss(int& x, int& y) { return tab5ReadTouch(x, y); }
+
+#else  // ---- original XPT2046 backend (classic ESP32-DIV / CYD) ----
+
 #if defined(BOARD_CYD) || defined(BOARD_ESP32_DIV_V1)
 // Dedicated VSPI bus for XPT2046 — must not share HSPI with TFT_eSPI on classic ESP32.
 SPIClass touchscreenSPI = SPIClass(VSPI);
@@ -153,3 +193,5 @@ bool readTouchXYDismiss(int& x, int& y) {
   mapTouchToScreen(rawX, rawY, x, y);
   return true;
 }
+
+#endif  // BOARD_TAB5

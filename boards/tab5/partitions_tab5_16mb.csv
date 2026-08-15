@@ -1,0 +1,10 @@
+# ESP32-DIV Tab5 (ESP32-P4) — 16MB flash, dual-OTA with large app slots.
+# Large app partitions accommodate the full ESP32-DIV binary and leave room for
+# the Launcher to install/update it. Sizes/offsets are 64KB-aligned.
+# Name,     Type, SubType,  Offset,    Size
+nvs,        data, nvs,      0x9000,    0x5000,
+otadata,    data, ota,      0xe000,    0x2000,
+app0,       app,  ota_0,    0x10000,   0x700000,
+app1,       app,  ota_1,    0x710000,  0x700000,
+spiffs,     data, spiffs,   0xE10000,  0x1E0000,
+coredump,   data, coredump, 0xFF0000,  0x10000,
