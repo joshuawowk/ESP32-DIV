@@ -56,45 +56,33 @@ class TFT_eSprite : public lgfx::LGFX_Sprite {
   TFT_eSprite(LovyanGFX* parent = nullptr) : lgfx::LGFX_Sprite(parent) {}
 };
 
-// ---- GT911 touch sensitivity (raise thresholds = less sensitive) ----
-// Reduces the Tab5's over-eager capacitive touch by raising the GT911
-// Screen_Touch_Level (0x8053) / Screen_Leave_Level (0x8054) config registers.
-// Uses LovyanGFX's i2c on the same already-initialized port M5GFX owns (I2C_NUM_1,
-// SDA31/SCL32) — never Arduino Wire1 (it maps to the same port on P4 and would
-// collide). Config is written to RAM only (0x8047 left untouched, so the GT911
-// does not burn its NVM); must be re-applied after each tft.init().
-// level 0 = most sensitive (factory-ish) .. 4 = least sensitive.
-static inline bool tab5Gt911SetSensitivityLevel(uint8_t level) {
-  static const uint8_t kTouch[5] = {0x38, 0x50, 0x68, 0x80, 0x98};
-  if (level > 4) level = 4;
-  const uint8_t touch = kTouch[level];
-  const uint8_t leave = (touch > 0x18) ? (uint8_t)(touch - 0x18) : 0x10;
-
-  constexpr int      PORT = 1;
-  constexpr uint32_t FREQ = 400000;
-  constexpr size_t   CFGLEN = 184;          // 0x8047..0x80FE
-  const uint8_t addrs[2] = {0x14, 0x5D};
-  uint8_t addr = 0;
-  for (uint8_t a : addrs) {
-    const uint8_t probe[2] = {0x80, 0x40};
-    uint8_t t = 0;
-    if (lgfx::i2c::transactionWriteRead(PORT, a, probe, 2, &t, 1, FREQ).has_value()) { addr = a; break; }
-  }
-  if (!addr) return false;
-
-  uint8_t buf[2 + CFGLEN + 2];
-  buf[0] = 0x80; buf[1] = 0x47;
-  const uint8_t rd[2] = {buf[0], buf[1]};
-  if (!lgfx::i2c::transactionWriteRead(PORT, addr, rd, 2, &buf[2], CFGLEN, FREQ).has_value()) return false;
-
-  buf[2 + (0x8053 - 0x8047)] = touch;       // -> buf[14]
-  buf[2 + (0x8054 - 0x8047)] = leave;       // -> buf[15]
-
-  uint8_t sum = 0;
-  for (size_t i = 0; i < CFGLEN; ++i) sum += buf[2 + i];
-  buf[2 + CFGLEN]     = (uint8_t)((~sum) + 1);   // checksum @ 0x80FF
-  buf[2 + CFGLEN + 1] = 0x01;                    // config-fresh @ 0x8100
-  return lgfx::i2c::transactionWrite(PORT, addr, buf, sizeof(buf), FREQ).has_value();
+// ---- software touch sensitivity (board-agnostic) ----
+// This Tab5 uses a Touch_ST7123 controller (not a GT911), whose sensitivity is
+// not runtime-configurable here — and it reports contact even for a finger
+// hovering just above the glass. Fortunately the ST7123 driver fills
+// touch_point_t.size with the reported contact AREA (0..255): a hover / feather
+// touch has a small area, a deliberate press a larger one. So "sensitivity" is a
+// software filter in tab5GetTouch: reject any contact whose area is below
+// kMinArea[level], and additionally require it to persist for kSettleMs[level].
+// level 0 = accept anything (most sensitive) .. 4 = firm, held press only.
+//
+// kMinArea is DISABLED (all zeros) until real on-device area values are measured
+// (build with -DTAB5_TOUCH_DEBUG, tap the screen, read the [touch] area= logs):
+// the ST7123's area units are unknown, and a threshold above a real touch's area
+// would make that level untouchable — including the default, from which the user
+// could not navigate to lower it. So the active sensitivity lever for now is the
+// unit-agnostic settle debounce below; enable kMinArea once measured to also
+// reject hovers (which the time debounce alone cannot). Suggested once measured:
+// scale to the observed hover-vs-press boundary, e.g. {0, lo, .., hi}.
+static inline uint16_t tab5TouchMinArea(uint8_t level) {
+  static const uint16_t kMinArea[5] = {0, 0, 0, 0, 0};   // measure before enabling
+  return kMinArea[level > 4 ? 4 : level];
+}
+// A contact must persist this long before it registers — kills brief/glancing
+// phantom taps. Kept modest so normal taps (~100-150ms) still register instantly.
+static inline uint16_t tab5TouchSettleMs(uint8_t level) {
+  static const uint16_t kSettleMs[5] = {0, 20, 40, 70, 110};
+  return kSettleMs[level > 4 ? 4 : level];
 }
 
 #if TAB5_SCALED_UI
@@ -104,6 +92,9 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
   float _scale = 1.0f;
   float _offx = 0.0f, _offy = 0.0f;
   SemaphoreHandle_t _panelMux = nullptr;   // serializes _panel access (flush task vs touch reads)
+  uint8_t  _touchLevel = 3;                 // sensitivity 0..4 (see tab5TouchMinArea)
+  uint32_t _downSince  = 0;                 // millis() of first raw contact in this press
+  bool     _rawWas     = false;             // was a qualifying contact seen last poll
 
   // Blit the offscreen UI canvas to the panel on a dedicated task (core 0) so
   // the app task's touch polling (core 1) is never stalled by the ~700K-pixel
@@ -145,25 +136,38 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
   }
 
   // Blit the canvas to the panel, scaled and centered (serialized vs touch reads).
-  // Anti-aliased zoom smooths the 3x upscale (less blocky text) vs nearest-neighbor.
+  // (pushRotateZoom = nearest-neighbor; the WithAA variant mis-placed the image
+  // to the left half on this panel, so we use the plain integer upscale.)
   void flush() {
     if (_panelMux) xSemaphoreTake(_panelMux, portMAX_DELAY);
-    pushRotateZoomWithAA(&_panel, _panel.width() * 0.5f, _panel.height() * 0.5f,
-                         0.0f, _scale, _scale);
+    pushRotateZoom(&_panel, _panel.width() * 0.5f, _panel.height() * 0.5f,
+                   0.0f, _scale, _scale);
     if (_panelMux) xSemaphoreGive(_panelMux);
   }
 
   // Read panel touch and map to canvas coordinates. Fast (I2C only) — the flush
   // runs on its own task, so touch is polled at the app loop's full rate.
   bool tab5GetTouch(int& x, int& y) {
-    int32_t px = 0, py = 0;
-    bool ok;
+    lgfx::touch_point_t tp;
+    bool raw;
     if (_panelMux) xSemaphoreTake(_panelMux, portMAX_DELAY);
-    ok = _panel.getTouch(&px, &py) > 0;
+    raw = _panel.getTouch(&tp, 1) > 0;
     if (_panelMux) xSemaphoreGive(_panelMux);
-    if (!ok) return false;
-    x = (int)((px - _offx) / _scale);
-    y = (int)((py - _offy) / _scale);
+    if (!raw) { _rawWas = false; return false; }
+#ifdef TAB5_TOUCH_DEBUG
+    // Measurement build: log the reported area and pass through (filter disabled)
+    // so touch stays fully usable while capturing real area values to tune with.
+    Serial.printf("[touch] area=%u x=%d y=%d\n", (unsigned)tp.size, (int)tp.x, (int)tp.y);
+#else
+    // Reject hover / feather contacts by reported area (see tab5TouchMinArea).
+    if (tp.size < tab5TouchMinArea(_touchLevel)) { _rawWas = false; return false; }
+    // Require the qualifying contact to persist briefly (debounce phantom taps).
+    const uint32_t now = millis();
+    if (!_rawWas) { _rawWas = true; _downSince = now; }
+    if ((uint32_t)(now - _downSince) < tab5TouchSettleMs(_touchLevel)) return false;
+#endif
+    x = (int)((tp.x - _offx) / _scale);
+    y = (int)((tp.y - _offy) / _scale);
     return true;
   }
 
@@ -174,9 +178,8 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
   }
 
   void setTouchSensitivity(uint8_t level) {
-    if (_panelMux) xSemaphoreTake(_panelMux, portMAX_DELAY);
-    tab5Gt911SetSensitivityLevel(level);   // serialize GT911 i2c vs touch reads
-    if (_panelMux) xSemaphoreGive(_panelMux);
+    _touchLevel = level > 4 ? 4 : level;   // software area+settle filter in tab5GetTouch
+    _rawWas = false;                       // restart any in-progress press under new threshold
   }
   void setRotation(uint8_t) {}     // logical canvas orientation is fixed
   inline void writecommand(uint8_t) {}
@@ -224,14 +227,25 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
 #else
 // ------------------------- native (direct panel) fallback --------------------
 class TFT_eSPI : public M5GFX {
+  uint8_t  _touchLevel = 3;
+  uint32_t _downSince  = 0;
+  bool     _rawWas     = false;
  public:
   TFT_eSPI() : M5GFX() {}
   bool tab5GetTouch(int& x, int& y) {
-    int32_t px = 0, py = 0;
-    if (!M5GFX::getTouch(&px, &py)) return false;
-    x = (int)px; y = (int)py; return true;
+    lgfx::touch_point_t tp;
+    if (M5GFX::getTouch(&tp, 1) <= 0) { _rawWas = false; return false; }
+#ifdef TAB5_TOUCH_DEBUG
+    Serial.printf("[touch] area=%u x=%d y=%d\n", (unsigned)tp.size, (int)tp.x, (int)tp.y);
+#else
+    if (tp.size < tab5TouchMinArea(_touchLevel)) { _rawWas = false; return false; }
+    const uint32_t now = millis();
+    if (!_rawWas) { _rawWas = true; _downSince = now; }
+    if ((uint32_t)(now - _downSince) < tab5TouchSettleMs(_touchLevel)) return false;
+#endif
+    x = (int)tp.x; y = (int)tp.y; return true;
   }
-  void setTouchSensitivity(uint8_t level) { tab5Gt911SetSensitivityLevel(level); }
+  void setTouchSensitivity(uint8_t level) { _touchLevel = level > 4 ? 4 : level; _rawWas = false; }
   inline void writecommand(uint8_t) {}
   inline void writedata(uint8_t) {}
   inline uint16_t getTouchRawZ() { lgfx::touch_point_t tp; return (M5GFX::getTouchRaw(&tp, 1) > 0) ? 4095 : 0; }

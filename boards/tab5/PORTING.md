@@ -15,7 +15,7 @@ SD/WiFi stack and 16 MB partition layout are proven.
 | SoC | ESP32 / ESP32-S3 (Xtensa) | **ESP32-P4** (RISC-V) + **ESP32-C6** |
 | WiFi/BT | native radio | via **esp-hosted** over SDIO (C6) |
 | Display | SPI TFT via **TFT_eSPI** | **MIPI-DSI 720×1280** via **M5GFX** |
-| Touch | XPT2046 resistive | **GT911** capacitive (M5GFX) |
+| Touch | XPT2046 resistive | **Touch_ST7123** capacitive (M5GFX) |
 | Buttons | PCF8574 I2C expander | none → on-screen touch nav bar |
 | Bluetooth Classic | yes | **not available on P4** |
 | SubGHz/nRF24/IR/RFID/GPS | external SPI/UART modules | not attached |
@@ -28,7 +28,9 @@ SD/WiFi stack and 16 MB partition layout are proven.
    API). Only `writecommand`/`writedata`/`getTouchRawZ` are added by the shim.
 2. **Input** — a `BOARD_TAB5` profile sets `HAS_PCF8574_BUTTONS=0`, so all input
    falls through to the existing on-screen touch nav bar with no feature changes.
-   `Touchscreen.cpp` gets a Tab5 backend using `tft.getTouch()` (GT911).
+   `Touchscreen.cpp` gets a Tab5 backend using `tft.tab5GetTouch()` (ST7123 via
+   M5GFX), with a software sensitivity filter (settle-debounce + optional
+   contact-area rejection) in the shim.
 3. **Feature-gate** external radios/modules that the Tab5 lacks; keep the UI,
    settings, SD, and (in later milestones) WiFi scan + BLE scan via the C6.
 
@@ -45,7 +47,7 @@ SD/WiFi stack and 16 MB partition layout are proven.
 | BLE scan | **Built (M3)** — IDF NimBLE C API | `hostedInitBLE()` + `nimble_port_init` + active `ble_gap_disc` |
 | BLE advertise (Spoofer/SourApple/AirTag) | **Built** — IDF NimBLE C API | `ble_gap_adv_set_data`/`start` + `ble_hs_id_set_rnd` MAC rotation (`tab5_ble_adv.cpp`) |
 | BLE skimmer detector | **Built** — IDF NimBLE scan | signature match on advertised names (`tab5_ble_skimmer.cpp`) |
-| Touch sensitivity | **Adjustable** — Settings ▸ Touch | GT911 threshold via lgfx i2c; persisted `touchSensitivity` |
+| Touch sensitivity | **Adjustable** — Settings ▸ Touch | software filter in the shim (Tab5 uses **Touch_ST7123**, not GT911): settle-debounce active now; ST7123 contact-**area** rejection ready to enable once measured. Persisted `touchSensitivity`. |
 | BLE jammer / low-level | **Blocked** | needs raw radio control |
 | Bluetooth Classic | **Blocked (platform)** | P4/C6 have no BT Classic |
 | SubGHz (CC1101) | **Gated** | external module, not on Tab5 |

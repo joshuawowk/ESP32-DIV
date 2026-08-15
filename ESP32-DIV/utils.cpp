@@ -1631,7 +1631,7 @@ static const char* items[] = {"Brightness", "Theme", "Accent", "NeoPixel", "Auto
 };
 static const int N = sizeof(items)/sizeof(items[0]);
 #if defined(BOARD_TAB5)
-static const int ROW_TOUCH = 5;   // index of the "Touch" (GT911 sensitivity) row
+static const int ROW_TOUCH = 5;   // index of the "Touch" (ST7123 sensitivity) row
 #endif
 
 static uint8_t  last_brightness;

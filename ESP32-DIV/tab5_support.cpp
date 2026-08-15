@@ -17,11 +17,12 @@ void tab5Unsupported(const char* name) {
   tft.setTextDatum(TL_DATUM);
 
   // The tap that selected this feature may still be held. Wait for it to
-  // release, then wait for a fresh tap, so the notice is actually read and
-  // dismissed deliberately (readTouchXY reports touch level, not an edge).
+  // release (level), then for a fresh tap (rising edge), so the notice is read
+  // and dismissed deliberately. isTouchDown* is level; readTouchXY is now
+  // edge-triggered (see Touchscreen.cpp), so it fires only on a new tap.
   int x = 0, y = 0;
-  while (readTouchXY(x, y)) delay(20);    // release of the selecting tap
-  while (!readTouchXY(x, y)) delay(20);   // fresh dismiss tap
+  while (isTouchDownDismiss()) delay(20);   // release of the selecting tap
+  while (!readTouchXY(x, y)) delay(20);     // fresh dismiss tap
   feature_exit_requested = true;
 }
 #endif
