@@ -1587,8 +1587,13 @@ static const int SCREEN_W = 240;
 static const int BAR_H    = 22;
 static const int TITLE_Y  = BAR_H + 4;
 static const int TITLE_H  = 16;
+#if defined(BOARD_TAB5)
+static const int ROW_H    = 48;   // taller rows fill the 427-tall Tab5 canvas
+static const int GAP_Y    = 8;
+#else
 static const int ROW_H    = 32;
 static const int GAP_Y    = 4;
+#endif
 static const int PAD_X    = 12;
 static const int LABEL_W  = 92;
 static const int RADIUS   = 8;

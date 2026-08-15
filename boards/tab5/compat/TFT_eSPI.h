@@ -37,7 +37,11 @@
 #define TAB5_UI_W 240
 #endif
 #ifndef TAB5_UI_H
-#define TAB5_UI_H 320
+// 240x427 is ~9:16, matching the 720x1280 panel, so a uniform 3x scale fills the
+// whole panel (no letterbox bars) instead of 240x320's 3:4 (which left 160px black
+// bars top+bottom). MUST stay in sync with TFT_HEIGHT in shared.h — tft.height()
+// returns THIS (the sprite height), and app layout reflows off tft.height().
+#define TAB5_UI_H 427
 #endif
 
 // TFT_eSPI panel command constants used by the terminal hardware-scroll helpers.
@@ -126,11 +130,14 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
     createSprite(TAB5_UI_W, TAB5_UI_H);
     fillScreen(0);
 
-    const float sx = (float)_panel.width()  / (float)TAB5_UI_W;
-    const float sy = (float)_panel.height() / (float)TAB5_UI_H;
-    _scale = sx < sy ? sx : sy;                       // integer-ish fit (3x)
-    _offx = (_panel.width()  - TAB5_UI_W * _scale) * 0.5f;
-    _offy = (_panel.height() - TAB5_UI_H * _scale) * 0.5f;
+    const float sx = (float)_panel.width()  / (float)TAB5_UI_W;   // 720/240 = 3.0
+    const float sy = (float)_panel.height() / (float)TAB5_UI_H;   // 1280/427 = 2.998
+    // "cover" (max), not "contain" (min): with the 9:16 canvas this is the clean
+    // integer 3.0x on both axes and fills the panel; the ~1px of vertical overflow
+    // is centered off the top/bottom edges (invisible) instead of leaving bars.
+    _scale = sx > sy ? sx : sy;
+    _offx = (_panel.width()  - TAB5_UI_W * _scale) * 0.5f;        // 0
+    _offy = (_panel.height() - TAB5_UI_H * _scale) * 0.5f;        // ~-0.5 (overflow, not a bar)
     flush();
     xTaskCreatePinnedToCore(flushTaskThunk, "tab5flush", 4096, this, 1, nullptr, 0);
   }
@@ -287,3 +294,11 @@ class TFT_eSPI : public M5GFX {
   }
 };
 #endif  // TAB5_SCALED_UI
+
+// The logical canvas height (TAB5_UI_H, above) and the app's TFT_HEIGHT macro
+// (shared.h) MUST be equal or layout math desyncs. Enforced in any translation
+// unit that has both visible (shared.h included before this header).
+#if defined(BOARD_TAB5) && TAB5_SCALED_UI && defined(TFT_HEIGHT)
+static_assert(TAB5_UI_H == TFT_HEIGHT,
+              "TAB5_UI_H (compat/TFT_eSPI.h) must equal TFT_HEIGHT (shared.h)");
+#endif

@@ -749,9 +749,11 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 #endif
 
 /*──────────────────── Display & Touch ────────────────────*/
-// On the Tab5 the UI is authored for a 240x320 logical canvas and scale-blitted
-// to the 720x1280 panel (see boards/tab5/compat/TFT_eSPI.h). With TAB5_SCALED_UI
-// the logical size is 240x320; without it the app draws natively at 720x1280.
+// On the Tab5 the UI is scale-blitted to the 720x1280 panel (see
+// boards/tab5/compat/TFT_eSPI.h). With TAB5_SCALED_UI the logical canvas is
+// 240x427 (9:16, so a uniform 3x fills the panel with no letterbox bars);
+// without it the app draws natively at 720x1280. TFT_HEIGHT below MUST match
+// TAB5_UI_H in the compat shim.
 #if defined(BOARD_TAB5)
 #ifndef TAB5_SCALED_UI
 #define TAB5_SCALED_UI 1
@@ -767,6 +769,10 @@ static const uint8_t OBF_WB[]   = {75, 97, 110, 109, 122, 92, 109, 107, 96, 38, 
 #ifndef TFT_HEIGHT
 #if defined(BOARD_TAB5) && !TAB5_SCALED_UI
 #define TFT_HEIGHT 1280
+#elif defined(BOARD_TAB5)
+// Scaled build: logical height 427 (9:16) so the 3x-scaled canvas fills 720x1280
+// with no letterbox bars. MUST match TAB5_UI_H in boards/tab5/compat/TFT_eSPI.h.
+#define TFT_HEIGHT 427
 #else
 #define TFT_HEIGHT 320
 #endif

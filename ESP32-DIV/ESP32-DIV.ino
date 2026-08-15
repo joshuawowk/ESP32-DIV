@@ -844,8 +844,14 @@ bool menu_initialized = false;
 const int COLUMN_WIDTH = 120;
 const int X_OFFSET_LEFT = 10;
 const int X_OFFSET_RIGHT = X_OFFSET_LEFT + COLUMN_WIDTH;
-const int Y_START = 30;
-const int Y_SPACING = 75;
+// Main menu: 2 columns x 4 rows of 100x60 buttons. Spread over the taller Tab5
+// canvas (427) below the 20px status bar: rows at 55/145/235/325 (bottoms up to
+// 385), ~35px top / ~42px bottom margin. (Was 30/75 for the old 320 canvas.)
+const int Y_START = 55;
+const int Y_SPACING = 90;
+// "Other" grid has only 4 items (2 rows); with the shared Y_SPACING it would sit
+// top-heavy, so give it its own start that vertically centers 2 rows on 427.
+const int OTHER_Y_START = 145;
 
 void displayOtherMenuGrid();
 void displayPagedSubmenu();
@@ -1004,7 +1010,7 @@ void displayOtherMenuGrid() {
             int column = i % OTHER_GRID_COLS;
             int row = i / OTHER_GRID_COLS;
             int x_position = (column == 0) ? X_OFFSET_LEFT : X_OFFSET_RIGHT;
-            int y_position = Y_START + row * Y_SPACING;
+            int y_position = OTHER_Y_START + row * Y_SPACING;
 
             tft.fillRoundRect(x_position, y_position, 100, 60, 5, UI_FG);
             tft.drawRoundRect(x_position, y_position, 100, 60, 5, UI_LINE);
@@ -1027,7 +1033,7 @@ void displayOtherMenuGrid() {
             int column = i % OTHER_GRID_COLS;
             int row = i / OTHER_GRID_COLS;
             int x_position = (column == 0) ? X_OFFSET_LEFT : X_OFFSET_RIGHT;
-            int y_position = Y_START + row * Y_SPACING;
+            int y_position = OTHER_Y_START + row * Y_SPACING;
 
             if (i == last_other_menu_index) {
                 tft.fillRoundRect(x_position, y_position, 100, 60, 5, UI_FG);
@@ -1046,7 +1052,7 @@ void displayOtherMenuGrid() {
         int column = current_submenu_index % OTHER_GRID_COLS;
         int row = current_submenu_index / OTHER_GRID_COLS;
         int x_position = (column == 0) ? X_OFFSET_LEFT : X_OFFSET_RIGHT;
-        int y_position = Y_START + row * Y_SPACING;
+        int y_position = OTHER_Y_START + row * Y_SPACING;
 
         tft.fillRoundRect(x_position, y_position, 100, 60, 5, UI_FG);
         tft.drawRoundRect(x_position, y_position, 100, 60, 5, UI_ICON);
@@ -4032,7 +4038,7 @@ void handleOtherSubmenuButtons() {
                 int column = i % OTHER_GRID_COLS;
                 int row = i / OTHER_GRID_COLS;
                 int x_position = (column == 0) ? X_OFFSET_LEFT : X_OFFSET_RIGHT;
-                int y_position = Y_START + row * Y_SPACING;
+                int y_position = OTHER_Y_START + row * Y_SPACING;
                 int button_x1 = x_position;
                 int button_y1 = y_position;
                 int button_x2 = x_position + 100;
@@ -4302,7 +4308,7 @@ void handleAboutPage() {
   tftPrintObf(OBF_WB, sizeof(OBF_WB));
 
   tft.setTextColor(UI_DIM_TEXT, UI_BG);
-  tft.setCursor(16, 300);
+  tft.setCursor(16, tft.height() - 20);   // bottom-anchored (300 on 320, 407 on Tab5's 427)
   tft.print("SELECT / tap to go back");
 
   while (!feature_exit_requested) {

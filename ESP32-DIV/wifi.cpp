@@ -2010,8 +2010,14 @@ void deauthdetectLoop() {
 
 namespace WifiScan {
 
+// Fallbacks only — shared.h already defines these per board (240x427 on Tab5).
+// Guarded so we don't redefine (and mis-pin) the real screen height.
+#ifndef TFT_WIDTH
 #define TFT_WIDTH 240
+#endif
+#ifndef TFT_HEIGHT
 #define TFT_HEIGHT 320
+#endif
 
 #define SCREEN_WIDTH  240
 #define SCREENHEIGHT 320
