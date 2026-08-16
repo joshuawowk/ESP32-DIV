@@ -146,17 +146,25 @@ Toolchain: pioarduino platform-espressif32 55.03.39, Arduino core 3.3.9
 
 ### Artifacts & install
 
-`pio run -e tab5` produces (also copied to `dist/`):
+`pio run -e tab5` stages (via `boards/tab5/package_launcher.py`, `dist/` is
+git-ignored):
 
-- `dist/ESP32-DIV-tab5-app.bin` — the app image (goes at app0 / `0x10000`).
-  Install via the Launcher (SD or OTA), which flashes it to the app partition.
+- `dist/ESP32-DIV.bin` — app-only image (magic `0xE9`). **This is the Launcher
+  install file** — its filename becomes the app's on-screen name. The bmorcelli
+  Launcher dynamically carves a new OTA app partition sized to the image, flashes
+  it, and boots it (no fixed offset, no icon/header/signature needed).
 - `dist/ESP32-DIV-tab5-full.bin` — full merged image (bootloader + partition
   table + app). Flash directly to `0x0` with esptool or web.esphome.io:
   `esptool --chip esp32p4 write_flash 0x0 dist/ESP32-DIV-tab5-full.bin`.
 
+Full install steps (SD-card and online-catalog paths), plus the catalog manifest
+template, are in **`boards/tab5/launcher/`** (`INSTALL.md`, `catalog-entry.json`).
+
 ### Files added/changed by the port
 
 - `platformio.ini`, `boards/tab5/partitions_tab5_16mb.csv`
+- `boards/tab5/package_launcher.py` — post-build hook staging `dist/` artifacts
+- `boards/tab5/launcher/{INSTALL.md, catalog-entry.json}` — Launcher install docs + manifest
 - `boards/tab5/compat/{TFT_eSPI.h, PCF8574.h, XPT2046_Touchscreen.h}` — shims
 - `ESP32-DIV/tab5_stubs.cpp` — stub entrypoints for excluded modules
 - `ESP32-DIV/{BoardConfig.h, shared.h, config.h, Touchscreen.cpp, ESP32-DIV.ino}`

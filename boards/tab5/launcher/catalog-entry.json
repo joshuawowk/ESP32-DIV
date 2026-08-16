@@ -1,0 +1,38 @@
+{
+  "_comment": "M5Burner / LauncherHub catalog + install manifest template for ESP32-DIV on the M5Stack Tab5. Category MUST be 'tab5' (the Launcher fetches api.launcherhub.net/firmwares?category=tab5). Publishing to the store needs an M5Stack account + approval — see INSTALL.md Path B. Fill the TODO fields and host the .bin at the sources.firmware URL.",
+
+  "publish": {
+    "name": "ESP32-DIV",
+    "author": "TODO-your-handle",
+    "category": "tab5",
+    "description": "ESP32-DIV pentest multitool ported to the M5Stack Tab5 (ESP32-P4): WiFi scan/AP/STA, BLE scan + advertise (Spoofer/SourApple/AirTag) + skimmer detector, SD tools, themeable touch UI.",
+    "version": "1.7.2-tab5",
+    "github": "https://github.com/joshuawowk/ESP32-DIV",
+    "cover": null
+  },
+
+  "version": {
+    "file": "ESP32-DIV.bin",
+    "install": {
+      "app": {
+        "source_offset": 0,
+        "image_size": 1511872
+      },
+      "_image_size_note": "image_size is the byte size of dist/ESP32-DIV.bin; update it whenever the app is rebuilt (the value above was current at the last build).",
+      "sources": {
+        "firmware": "TODO-https-url-to/ESP32-DIV.bin"
+      }
+    }
+  },
+
+  "_alt_full_image": {
+    "_comment": "Alternative: publish the merged full image instead of the app-only image.",
+    "version": {
+      "file": "ESP32-DIV-tab5-full.bin",
+      "install": {
+        "app": { "source_offset": 65536, "image_size": "TODO-app-slice-bytes" },
+        "sources": { "firmware": "TODO-https-url-to/ESP32-DIV-tab5-full.bin" }
+      }
+    }
+  }
+}
