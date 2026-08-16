@@ -2118,6 +2118,22 @@ static void handleTouch() {
   int tx, ty;
   static uint32_t lastToggleMs = 0;
   static bool accentArmed = true;
+
+  // Continue an in-progress brightness-slider drag with a LEVEL read: readTouchXY
+  // is edge-triggered (reports only the first frame of a press), which would abort
+  // the drag after one frame. The initial tap below is still edge (one per press).
+  if (dragging) {
+    int16_t lx = 0, ly = 0;
+    if (!readTouchRawXY(lx, ly)) { dragging = false; accentArmed = true; return; }
+    auto& s = settings();
+    Rect tr = rBrightTrack();
+    long rel = (long)lx - tr.x;
+    if (rel < 0) rel = 0;
+    if (rel > tr.w - 1) rel = tr.w - 1;
+    applyBrightness((uint8_t)((rel * 255L) / (tr.w - 1)));
+    return;
+  }
+
   if (!readTouchXY(tx, ty)) {
     dragging = false;
     accentArmed = true;
@@ -2369,6 +2385,7 @@ static int touchStartX = 0;
 static int touchStartY = 0;
 static int touchLastY = 0;
 static int scrollAccumY = 0;
+static bool touchPrevDown = false;   // level rising-edge tracker (carry-over guard)
 
 static Button browserBtns[4];
 static Button infoBtns[2];
@@ -3112,6 +3129,12 @@ void setup() {
   cwd = "/";
   sel = 0;
   uiDirty = true;
+  // Start with "finger down" so a still-held selecting tap must release before a
+  // gesture begins here (carry-over guard), matching the edge-triggered nav.
+  touchActive = false;
+  touchDragging = false;
+  scrollAccumY = 0;
+  touchPrevDown = true;
   reloadDir("/", nullptr);
   currentBatteryVoltage = readBatteryVoltage();
   drawStatusBar(currentBatteryVoltage, true);
@@ -3147,8 +3170,16 @@ void loop() {
     return;
   }
 
-  int x, y;
-  bool touched = readTouchXY(x, y);
+  // LEVEL read: this is a drag/tap gesture handler that needs the live position on
+  // every held frame (edge-triggered readTouchXY reports only the first frame, so
+  // a drag could never form). A gesture only STARTS on a rising edge (fresh press),
+  // so a carried-over selecting tap cannot open a file here.
+  int16_t rx = 0, ry = 0;
+  bool touched = readTouchRawXY(rx, ry);
+  const int x = (int)rx, y = (int)ry;
+  const bool rising = touched && !touchPrevDown;
+  touchPrevDown = touched;
+
   if (!touched) {
     if (touchActive && !touchDragging) {
       handleTap(touchStartX, touchStartY);
@@ -3160,6 +3191,9 @@ void loop() {
   }
 
   if (!touchActive) {
+    if (!rising) {
+      return;   // finger already down (e.g. carried-over tap) — wait for a fresh press
+    }
     touchActive = true;
     touchDragging = false;
     touchStartX = x;

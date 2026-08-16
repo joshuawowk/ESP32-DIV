@@ -724,20 +724,28 @@ static bool isTouchNavSlotDown(int idx) {
     return false;
   }
 
-  int x = 0;
-  int y = 0;
-  if (!readTouchXYDismiss(x, y)) {
+  // LEVEL read: the button dispatcher calls this once PER SLOT each loop iteration
+  // (isButtonPressed(BTN_LEFT/DOWN/SELECT/UP/RIGHT)), so it must report the current
+  // touch on every call. readTouchXYDismiss is edge-triggered (returns the tap only
+  // on the first call of a press), so only the first slot checked could ever match
+  // — that is why only "Exit" (SELECT, checked first) worked and Scan/Next/Prev/etc
+  // did not. Per-press (one-shot) semantics for the nav buttons come separately from
+  // isTouchNavButtonPressedEdge() via s_touchNavHeld[], which is built to wrap a
+  // LEVEL isTouchNavSlotDown().
+  int16_t tx = 0;
+  int16_t ty = 0;
+  if (!readTouchRawXY(tx, ty)) {
     return false;
   }
 
   layoutTouchNavBtns();
 
   const int stripTop = tft.height() - TOUCH_NAV_BAR_H;
-  if (y < stripTop) {
+  if (ty < stripTop) {
     return false;
   }
 
-  return FeatureUI::hit(s_touchNavBtns, 5, x, y) == idx;
+  return FeatureUI::hit(s_touchNavBtns, 5, (int)tx, (int)ty) == idx;
 }
 
 bool isPhysicalButtonPressed(int buttonPin) {

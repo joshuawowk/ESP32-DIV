@@ -119,10 +119,8 @@ static void restoreTftAfterOsKeyboard() {
 static void dismissKeyboardTouch() {
   delay(100);
   for (int i = 0; i < 80; ++i) {
-    int tx = 0;
-    int ty = 0;
-    if (!readTouchXY(tx, ty)) {
-      break;
+    if (!isTouchDown()) {   // LEVEL: actually wait for release (readTouchXY is
+      break;                // edge-triggered and would report released immediately)
     }
     delay(10);
   }
