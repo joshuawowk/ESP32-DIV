@@ -70,24 +70,29 @@ class TFT_eSprite : public lgfx::LGFX_Sprite {
 // kMinArea[level], and additionally require it to persist for kSettleMs[level].
 // level 0 = accept anything (most sensitive) .. 4 = firm, held press only.
 //
-// kMinArea is DISABLED (all zeros) until real on-device area values are measured
-// (build with -DTAB5_TOUCH_DEBUG, tap the screen, read the [touch] area= logs):
-// the ST7123's area units are unknown, and a threshold above a real touch's area
-// would make that level untouchable — including the default, from which the user
-// could not navigate to lower it. So the active sensitivity lever for now is the
-// unit-agnostic settle debounce below; enable kMinArea once measured to also
-// reject hovers (which the time debounce alone cannot). Suggested once measured:
-// scale to the observed hover-vs-press boundary, e.g. {0, lo, .., hi}.
+// Thresholds set from on-device ST7123 measurement (peak contact area per tap):
+// light graze/hover = 7-9, normal tap = 12-13, firm press = 17-23. So a threshold
+// in the 10-12 gap rejects grazes while keeping normal taps; 16 requires a firm
+// press. level 0 keeps the "accept anything" escape hatch. tab5GetTouch reports a
+// contact only while a >=threshold sample was seen within the last kTouchReleaseMs
+// (see below), so a hover/graze that never reaches the threshold is rejected.
 static inline uint16_t tab5TouchMinArea(uint8_t level) {
-  static const uint16_t kMinArea[5] = {0, 0, 0, 0, 0};   // measure before enabling
+  static const uint16_t kMinArea[5] = {0, 10, 11, 12, 16};
   return kMinArea[level > 4 ? 4 : level];
 }
-// A contact must persist this long before it registers — kills brief/glancing
-// phantom taps. Kept modest so normal taps (~100-150ms) still register instantly.
+// After the area qualifies, the contact must persist this long before registering
+// — debounces micro-bounces. Small, since the area threshold now does the heavy
+// lifting against grazes/phantoms; kept snappy at the higher-sensitivity levels.
 static inline uint16_t tab5TouchSettleMs(uint8_t level) {
-  static const uint16_t kSettleMs[5] = {0, 20, 40, 70, 110};
+  static const uint16_t kSettleMs[5] = {0, 15, 25, 40, 60};
   return kSettleMs[level > 4 ? 4 : level];
 }
+// A qualified contact is treated as released once no >=threshold sample has been
+// seen for this long. Bridges momentary area dips mid-press (a held press never
+// flickers) yet still ends the touch when the finger lifts to a hover — which this
+// panel keeps reporting as a low-area contact (raw stays true), so we cannot rely
+// on raw==false alone to detect release.
+static constexpr uint16_t kTouchReleaseMs = 80;
 
 #if TAB5_SCALED_UI
 // ------------------------- scaled (offscreen canvas) -------------------------
@@ -97,8 +102,13 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
   float _offx = 0.0f, _offy = 0.0f;
   SemaphoreHandle_t _panelMux = nullptr;   // serializes _panel access (flush task vs touch reads)
   uint8_t  _touchLevel = 3;                 // sensitivity 0..4 (see tab5TouchMinArea)
-  uint32_t _downSince  = 0;                 // millis() of first raw contact in this press
-  bool     _rawWas     = false;             // was a qualifying contact seen last poll
+  uint32_t _downSince  = 0;                 // millis() when the contact became active
+  uint32_t _lastStrong = 0;                 // millis() of the last sample with area >= threshold
+  bool     _active     = false;             // currently reporting a qualified press
+#ifdef TAB5_TOUCH_DEBUG
+  uint16_t _dbgPeak = 0;                    // peak contact area of the in-progress tap
+  uint16_t _dbgLast = 0;                    // peak area of the last completed tap (on-screen readout)
+#endif
 
   // Blit the offscreen UI canvas to the panel on a dedicated task (core 0) so
   // the app task's touch polling (core 1) is never stalled by the ~700K-pixel
@@ -149,6 +159,16 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
     if (_panelMux) xSemaphoreTake(_panelMux, portMAX_DELAY);
     pushRotateZoom(&_panel, _panel.width() * 0.5f, _panel.height() * 0.5f,
                    0.0f, _scale, _scale);
+#ifdef TAB5_TOUCH_DEBUG
+    // On-screen area readout (redrawn every frame on top of the blitted UI). Shows
+    // the peak contact area of the last tap so it can be measured without serial.
+    _panel.fillRect(_panel.width() - 250, 0, 250, 48, 0x001F);   // blue box
+    _panel.setTextColor(0xFFFF, 0x001F);                          // white on blue
+    _panel.setTextSize(3);
+    _panel.setCursor(_panel.width() - 242, 10);
+    _panel.printf("area=%u", (unsigned)_dbgLast);
+    _panel.setTextSize(1);
+#endif
     if (_panelMux) xSemaphoreGive(_panelMux);
   }
 
@@ -160,17 +180,25 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
     if (_panelMux) xSemaphoreTake(_panelMux, portMAX_DELAY);
     raw = _panel.getTouch(&tp, 1) > 0;
     if (_panelMux) xSemaphoreGive(_panelMux);
-    if (!raw) { _rawWas = false; return false; }
 #ifdef TAB5_TOUCH_DEBUG
-    // Measurement build: log the reported area and pass through (filter disabled)
-    // so touch stays fully usable while capturing real area values to tune with.
-    Serial.printf("[touch] area=%u x=%d y=%d\n", (unsigned)tp.size, (int)tp.x, (int)tp.y);
+    // Measurement build: track the PEAK contact area of each tap and latch it on
+    // release, so flush() can show it on-screen (serial can't be used to capture
+    // this — opening the USB port resets the P4 and the ST7123 then stops
+    // reporting touches). Filter is bypassed so touch stays fully usable.
+    if (raw) { if (tp.size > _dbgPeak) _dbgPeak = tp.size; }
+    else if (_dbgPeak) { _dbgLast = _dbgPeak; _dbgPeak = 0; }
+    if (!raw) return false;
 #else
-    // Reject hover / feather contacts by reported area (see tab5TouchMinArea).
-    if (tp.size < tab5TouchMinArea(_touchLevel)) { _rawWas = false; return false; }
-    // Require the qualifying contact to persist briefly (debounce phantom taps).
+    if (!raw) { _active = false; _lastStrong = 0; return false; }   // finger lifted clear
     const uint32_t now = millis();
-    if (!_rawWas) { _rawWas = true; _downSince = now; }
+    const uint16_t minA = tab5TouchMinArea(_touchLevel);
+    if (tp.size >= minA) _lastStrong = now;
+    // Reject grazes/hovers: report only while a >=threshold sample was seen within
+    // the grace window. A pure hover never qualifies; easing to a hover after a
+    // press releases after the grace (this panel keeps reporting a hovering finger).
+    if (_lastStrong == 0 || (uint32_t)(now - _lastStrong) > kTouchReleaseMs) { _active = false; return false; }
+    // Brief persistence after qualifying (debounce micro-bounces).
+    if (!_active) { _active = true; _downSince = now; }
     if ((uint32_t)(now - _downSince) < tab5TouchSettleMs(_touchLevel)) return false;
 #endif
     x = (int)((tp.x - _offx) / _scale);
@@ -186,7 +214,8 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
 
   void setTouchSensitivity(uint8_t level) {
     _touchLevel = level > 4 ? 4 : level;   // software area+settle filter in tab5GetTouch
-    _rawWas = false;                       // restart any in-progress press under new threshold
+    _active = false;                       // restart any in-progress press under new threshold
+    _lastStrong = 0;
   }
   void setRotation(uint8_t) {}     // logical canvas orientation is fixed
   inline void writecommand(uint8_t) {}
@@ -236,23 +265,27 @@ class TFT_eSPI : public lgfx::LGFX_Sprite {
 class TFT_eSPI : public M5GFX {
   uint8_t  _touchLevel = 3;
   uint32_t _downSince  = 0;
-  bool     _rawWas     = false;
+  uint32_t _lastStrong = 0;
+  bool     _active     = false;
  public:
   TFT_eSPI() : M5GFX() {}
   bool tab5GetTouch(int& x, int& y) {
     lgfx::touch_point_t tp;
-    if (M5GFX::getTouch(&tp, 1) <= 0) { _rawWas = false; return false; }
+    if (M5GFX::getTouch(&tp, 1) <= 0) { _active = false; _lastStrong = 0; return false; }
 #ifdef TAB5_TOUCH_DEBUG
     Serial.printf("[touch] area=%u x=%d y=%d\n", (unsigned)tp.size, (int)tp.x, (int)tp.y);
 #else
-    if (tp.size < tab5TouchMinArea(_touchLevel)) { _rawWas = false; return false; }
+    // Area + release-grace filter (see scaled class for the rationale).
     const uint32_t now = millis();
-    if (!_rawWas) { _rawWas = true; _downSince = now; }
+    const uint16_t minA = tab5TouchMinArea(_touchLevel);
+    if (tp.size >= minA) _lastStrong = now;
+    if (_lastStrong == 0 || (uint32_t)(now - _lastStrong) > kTouchReleaseMs) { _active = false; return false; }
+    if (!_active) { _active = true; _downSince = now; }
     if ((uint32_t)(now - _downSince) < tab5TouchSettleMs(_touchLevel)) return false;
 #endif
     x = (int)tp.x; y = (int)tp.y; return true;
   }
-  void setTouchSensitivity(uint8_t level) { _touchLevel = level > 4 ? 4 : level; _rawWas = false; }
+  void setTouchSensitivity(uint8_t level) { _touchLevel = level > 4 ? 4 : level; _active = false; _lastStrong = 0; }
   inline void writecommand(uint8_t) {}
   inline void writedata(uint8_t) {}
   inline uint16_t getTouchRawZ() { lgfx::touch_point_t tp; return (M5GFX::getTouchRaw(&tp, 1) > 0) ? 4095 : 0; }
