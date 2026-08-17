@@ -2212,11 +2212,23 @@ static void wifiScanUpdateNavLabels() {
   if (!featureHasTouchNavBar()) {
     return;
   }
+  // Slot order is (left, down, center, up, right). On the Tab5 the layout is
+  // Prev(left of Exit)/Next(right of Exit) with the pin->action mapping swapped to
+  // match in handleButton(). Other boards keep the original Next/Prev arrangement
+  // (and their unswapped actions), so labels and actions stay consistent there.
+#if defined(BOARD_TAB5)
+  if (isDetailView) {
+    setTouchNavLabels("Scan", "Prev", "Exit", "Next", "Back");
+  } else {
+    setTouchNavLabels("Scan", "Prev", "Exit", "Next", "View");
+  }
+#else
   if (isDetailView) {
     setTouchNavLabels("Scan", "Next", "Exit", "Prev", "Back");
   } else {
     setTouchNavLabels("Scan", "Next", "Exit", "Prev", "View");
   }
+#endif
   redrawTouchButtonBar();
 }
 
@@ -2493,7 +2505,19 @@ void handleButton() {
   bool updated = false;
   int oldPage = current_page;
 
-  if (isButtonPressed(BTN_UP)) {
+  // Selection movement pins. On the Tab5 touch nav bar the labels are laid out
+  // Scan|Prev|Exit|Next|View, i.e. "Prev" sits on the slot left of Exit (BTN_DOWN)
+  // and "Next" on the slot right of Exit (BTN_UP), so the pins are swapped vs the
+  // physical-button boards (where UP=previous / DOWN=next).
+#if defined(BOARD_TAB5)
+  const int kSelPrevPin = BTN_DOWN;
+  const int kSelNextPin = BTN_UP;
+#else
+  const int kSelPrevPin = BTN_UP;
+  const int kSelNextPin = BTN_DOWN;
+#endif
+
+  if (isButtonPressed(kSelPrevPin)) {
     if (!isDetailView && currentIndex > 0) {
       currentIndex--;
       delay(200);
@@ -2503,7 +2527,7 @@ void handleButton() {
     lastButtonPress = currentMillis;
   }
 
-  if (isButtonPressed(BTN_DOWN)) {
+  if (isButtonPressed(kSelNextPin)) {
     if (!isDetailView && currentIndex < WiFi.scanComplete() - 1) {
       currentIndex++;
       delay(200);
