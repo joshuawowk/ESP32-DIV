@@ -102,6 +102,8 @@ bool settingsLoad() {
   s.theme           = (Theme)(uint8_t)(doc["theme"] | (uint8_t)s.theme);
   s.accentColor     = accentPresetClamp(doc["accentColor"] | s.accentColor);
   s.neopixelEnabled = doc["neopixelEnabled"] | s.neopixelEnabled;
+  s.touchSensitivity = doc["touchSensitivity"] | s.touchSensitivity;
+  if (s.touchSensitivity > 4) s.touchSensitivity = 4;
 
   s.autoWifiScan    = doc["autoWifiScan"]    | s.autoWifiScan;
   s.autoBleScan     = doc["autoBleScan"]     | s.autoBleScan;
@@ -148,6 +150,7 @@ bool settingsSave() {
   doc["theme"]           = (uint8_t)s.theme;
   doc["accentColor"]     = s.accentColor;
   doc["neopixelEnabled"] = s.neopixelEnabled;
+  doc["touchSensitivity"] = s.touchSensitivity;
 
   doc["autoWifiScan"]    = s.autoWifiScan;
   doc["autoBleScan"]     = s.autoBleScan;

@@ -2,6 +2,7 @@
 #include "SettingsStore.h"
 #include "Touchscreen.h"
 #include "config.h"
+#include "tab5_support.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -281,7 +282,11 @@ static void ptmStartRadioAndPcapOnce() {
   wifi_mode_t wm = WIFI_MODE_NULL;
   const esp_err_t gm = esp_wifi_get_mode(&wm);
   if (gm == ESP_ERR_WIFI_NOT_INIT) {
+#if defined(BOARD_TAB5)
+    esp_netif_init();            // tcpip_adapter API removed in ESP-IDF 5.x
+#else
     tcpip_adapter_init();
+#endif
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t err = esp_wifi_init(&cfg);
     if (err != ESP_OK) {
@@ -358,7 +363,7 @@ unsigned long microseconds;
 double vReal[samples];
 double vImag[samples];
 
-byte palette_red[ESP32DIV_FFT_PALETTE_SIZE], palette_green[ESP32DIV_FFT_PALETTE_SIZE],
+uint8_t palette_red[ESP32DIV_FFT_PALETTE_SIZE], palette_green[ESP32DIV_FFT_PALETTE_SIZE],
      palette_blue[ESP32DIV_FFT_PALETTE_SIZE];
 
 bool buttonPressed = false;
@@ -505,9 +510,16 @@ void do_sampling_FFT() {
   delay(10);
 }
 
+#if defined(BOARD_TAB5)
+// system_event_t was removed in ESP-IDF 5.x. This legacy handler is unused.
+esp_err_t event_handler(void* ctx, void* event) {
+  return ESP_OK;
+}
+#else
 esp_err_t event_handler(void* ctx, system_event_t* event) {
   return ESP_OK;
 }
+#endif
 
 double getMultiplicator() {
   uint32_t maxVal = 1;
@@ -567,6 +579,10 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type) {
   rt.mcs_flags = 0;
   rt.mcs = 0;
 
+#if !defined(BOARD_TAB5)
+  // 802.11n HT radiotap fields: the ESP32-P4 wifi_pkt_rx_ctrl_t has no
+  // sig_mode/cwb/sgi/fec_coding/stbc/mcs members (and promiscuous capture does
+  // not work over the C6 hosted link anyway), so this block is classic-only.
   if (ctrl.sig_mode == 1) {
 
     rt.mcs_known =
@@ -584,6 +600,7 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type) {
 
     rt.mcs = ctrl.mcs;
   }
+#endif
 
   const uint16_t totalLen = (uint16_t)(RADIOTAP_LEN + packetLength);
   s.hdr.incl_len = totalLen;
@@ -744,6 +761,9 @@ static void ptmDrawWaitCard() {
 }
 
 void ptmSetup() {
+#if defined(BOARD_TAB5)
+  tab5Unsupported("Packet Monitor"); return;   // WiFi injection/promiscuous unsupported over C6 hosted
+#endif
   pauseBackgroundRadioTasks();
   setTouchButtonInputEnabled(true);
   setTouchNavLabels("Ch-", nullptr, "Exit", nullptr, "Ch+");
@@ -1378,6 +1398,9 @@ void runUI() {
 }
 
 void beaconSpamSetup() {
+#if defined(BOARD_TAB5)
+  tab5Unsupported("Beacon Spammer"); return;   // WiFi injection/promiscuous unsupported over C6 hosted
+#endif
   pauseBackgroundRadioTasks();
   setTouchButtonInputEnabled(true);
   spam = false;
@@ -1900,6 +1923,9 @@ void runUI() {
 }
 
 void deauthdetectSetup() {
+#if defined(BOARD_TAB5)
+  tab5Unsupported("Deauth Detector"); return;   // WiFi injection/promiscuous unsupported over C6 hosted
+#endif
   pauseBackgroundRadioTasks();
   setTouchButtonInputEnabled(true);
   setTouchNavLabels(nullptr, nullptr, "Exit", "Pause", nullptr);
@@ -1984,8 +2010,14 @@ void deauthdetectLoop() {
 
 namespace WifiScan {
 
+// Fallbacks only — shared.h already defines these per board (240x427 on Tab5).
+// Guarded so we don't redefine (and mis-pin) the real screen height.
+#ifndef TFT_WIDTH
 #define TFT_WIDTH 240
+#endif
+#ifndef TFT_HEIGHT
 #define TFT_HEIGHT 320
+#endif
 
 #define SCREEN_WIDTH  240
 #define SCREENHEIGHT 320
@@ -2795,7 +2827,7 @@ static uint8_t cp_deauth_frame_default[26] = {
 };
 static uint8_t cp_deauth_frame[sizeof(cp_deauth_frame_default)];
 DNSServer dnsServer;
-const byte DNS_PORT = 53;
+const uint8_t DNS_PORT = 53;
 WebServer server(80);
 
 bool attackActive = false;
@@ -4749,6 +4781,9 @@ void runUI() {
 }
 
 void deautherSetup() {
+#if defined(BOARD_TAB5)
+  tab5Unsupported("Deauther"); return;   // WiFi injection/promiscuous unsupported over C6 hosted
+#endif
     pauseBackgroundRadioTasks();
     setTouchButtonInputEnabled(true);
     deautherUpdateNavLabels(false);
@@ -5437,6 +5472,9 @@ void runUI() {
 }
 
 void probeRequestFloodSetup() {
+#if defined(BOARD_TAB5)
+  tab5Unsupported("Probe Flood"); return;   // WiFi injection/promiscuous unsupported over C6 hosted
+#endif
     pauseBackgroundRadioTasks();
     setTouchButtonInputEnabled(true);
     probeUpdateNavLabels(false);
@@ -6579,6 +6617,9 @@ static void teardown() {
 }
 
 void hiddenSsidSetup() {
+#if defined(BOARD_TAB5)
+  tab5Unsupported("Hidden SSID Reveal"); return;   // uses promiscuous + raw injection, unsupported over C6 hosted
+#endif
   pauseBackgroundRadioTasks();
   setTouchButtonInputEnabled(true);
   updateNavLabels(false);
@@ -9152,6 +9193,9 @@ static void teardown() {
 }
 
 void karmaSetup() {
+#if defined(BOARD_TAB5)
+  tab5Unsupported("Karma"); return;   // WiFi injection/promiscuous unsupported over C6 hosted
+#endif
   pauseBackgroundRadioTasks();
   setTouchButtonInputEnabled(true);
   featureClearContent(TFT_BLACK);

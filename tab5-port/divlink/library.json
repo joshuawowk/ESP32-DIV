@@ -1,0 +1,11 @@
+{
+  "name": "divlink",
+  "version": "0.1.0",
+  "description": "Framed binary link protocol (COBS+CRC16) between the Tab5 host (ESP32-P4) and the ESP32-DIV companion (ESP32-S3). SoC-agnostic.",
+  "keywords": ["protocol", "uart", "cobs", "esp32"],
+  "frameworks": "*",
+  "platforms": "*",
+  "build": {
+    "libArchive": false
+  }
+}

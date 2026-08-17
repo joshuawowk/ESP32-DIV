@@ -1,0 +1,4 @@
+# PlatformIO build output (Tab5 port)
+.pio/
+# Built firmware artifacts (regenerate with `pio run -e tab5`)
+dist/

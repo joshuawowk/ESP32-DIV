@@ -475,6 +475,11 @@ const float R2 = 100000.0;
 
 float readBatteryVoltage()
 {
+#if !defined(BATTERY_ADC_PIN) || (BATTERY_ADC_PIN < 0)
+  // No battery-sense ADC pin on this board (e.g. Tab5). Calling analogRead* with
+  // pin -1 (=255) faults __analogInit on the ESP32-P4, so short-circuit here.
+  return 0.0f;
+#else
   static bool adcInitialized = false;
 
   if (!adcInitialized)
@@ -495,6 +500,7 @@ float readBatteryVoltage()
   float avgMv = sum / (float)sampleCount;
 
   return (avgMv / 1000.0f) * 2.0f;
+#endif
 }
 
 float readInternalTemperature() {
@@ -1302,7 +1308,7 @@ uint16_t yDraw = DISPLAY_HEIGHT - BOT_FIXED_AREA - TEXT_HEIGHT;
 
 uint16_t xPos = 0;
 
-byte data = 0;
+uint8_t data = 0;
 
 boolean change_colour = 1;
 boolean selected = 1;
@@ -1311,7 +1317,7 @@ boolean terminalActive = true;
 int blank[19];
 
 long baudRates[] = {9600, 19200, 38400, 57600, 115200};
-byte baudIndex = 0;
+uint8_t baudIndex = 0;
 
 static int terminalContentBottom() {
   return featureHasTouchNavBar() ? (int)touchNavContentBottomY() : DISPLAY_HEIGHT;
@@ -1482,6 +1488,14 @@ void scrollAddress(uint16_t vsp) {
 }
 
 int scroll_line() {
+#if defined(BOARD_TAB5)
+  // The DSI panel has no hardware vertical scroll; scroll the offscreen canvas
+  // region in software and always draw the newest line at the bottom.
+  const int bottomLine = DISPLAY_HEIGHT - terminalBotFixedArea() - TEXT_HEIGHT;
+  tft.scroll(0, -TEXT_HEIGHT);
+  tft.fillRect(0, bottomLine, DISPLAY_WIDTH, TEXT_HEIGHT, TFT_BLACK);
+  return bottomLine;
+#else
   int yTemp = yStart;
   tft.fillRect(0, yStart, blank[(yStart - TOP_FIXED_AREA) / TEXT_HEIGHT], TEXT_HEIGHT, TFT_BLACK);
 
@@ -1493,9 +1507,15 @@ int scroll_line() {
   scrollAddress(yStart);
   delay(1);
   return yTemp;
+#endif
 }
 
 void setupScrollArea(uint16_t tfa, uint16_t bfa) {
+#if defined(BOARD_TAB5)
+  // Restrict software scrolling to the text region (below the header, above the
+  // touch nav bar) so scroll() only shifts terminal text.
+  tft.setScrollRect(0, tfa, DISPLAY_WIDTH, DISPLAY_HEIGHT - tfa - bfa);
+#else
   tft.writecommand(ILI9341_VSCRDEF);
   tft.writedata(tfa >> 8);
   tft.writedata(tfa);
@@ -1503,6 +1523,7 @@ void setupScrollArea(uint16_t tfa, uint16_t bfa) {
   tft.writedata(DISPLAY_HEIGHT - tfa - bfa);
   tft.writedata(bfa >> 8);
   tft.writedata(bfa);
+#endif
 }
 
 void terminalSetup() {
@@ -1528,7 +1549,7 @@ void terminalSetup() {
   yDraw = DISPLAY_HEIGHT - bfa - TEXT_HEIGHT;
   setupScrollArea(TOP_FIXED_AREA, bfa);
 
-  for (byte i = 0; i < 19; i++) blank[i] = 0;
+  for (uint8_t i = 0; i < 19; i++) blank[i] = 0;
 
   terminalUpdateNavLabels();
 }
@@ -1543,7 +1564,7 @@ void terminalLoop() {
   runUI();
 
   if (terminalActive) {
-    byte charCount = 0;
+    uint8_t charCount = 0;
     while (Serial.available() && charCount < 10) {
       data = Serial.read();
       if (data == '\r' || xPos > 231) {
@@ -1566,8 +1587,13 @@ static const int SCREEN_W = 240;
 static const int BAR_H    = 22;
 static const int TITLE_Y  = BAR_H + 4;
 static const int TITLE_H  = 16;
+#if defined(BOARD_TAB5)
+static const int ROW_H    = 48;   // taller rows fill the 427-tall Tab5 canvas
+static const int GAP_Y    = 8;
+#else
 static const int ROW_H    = 32;
 static const int GAP_Y    = 4;
+#endif
 static const int PAD_X    = 12;
 static const int LABEL_W  = 92;
 static const int RADIUS   = 8;
@@ -1603,14 +1629,24 @@ static int  sel = 0;
 static bool dirtySettings = false;
 static bool uiDirty = false;
 
-static const char* items[] = {"Brightness", "Theme", "Accent", "NeoPixel", "Auto Scan"};
+static const char* items[] = {"Brightness", "Theme", "Accent", "NeoPixel", "Auto Scan",
+#if defined(BOARD_TAB5)
+  "Touch",
+#endif
+};
 static const int N = sizeof(items)/sizeof(items[0]);
+#if defined(BOARD_TAB5)
+static const int ROW_TOUCH = 5;   // index of the "Touch" (ST7123 sensitivity) row
+#endif
 
 static uint8_t  last_brightness;
 static Theme    last_theme;
 static uint8_t  last_accent;
 static bool     last_neopixel;
 static bool     last_autoScan;
+#if defined(BOARD_TAB5)
+static uint8_t  last_touchSens;
+#endif
 static int      last_sel;
 
 static bool dragging = false;
@@ -1849,6 +1885,33 @@ static void drawSwitchRow(bool on, bool selected, int row) {
 static void drawNeoPixel(bool on, bool selected) { drawSwitchRow(on, selected, 3); }
 static void drawAutoScan(bool on, bool selected) { drawSwitchRow(on, selected, 4); }
 
+#if defined(BOARD_TAB5)
+static const char* touchLevelName(uint8_t lvl) {
+  static const char* names[5] = {"Highest", "High", "Medium", "Low", "Lowest"};
+  return names[lvl > 4 ? 4 : lvl];
+}
+static void drawTouchWidget(uint8_t level, bool selected) {
+  if (level > 4) level = 4;
+  tft.startWrite();
+  Rect r = rowRect(ROW_TOUCH);
+  tft.fillRect(r.x + LABEL_W, r.y + 2, r.w - LABEL_W - 6, r.h - 4, UI_BG);   // wipe value area
+  int bw = 84, bh = r.h - 8;
+  int bx = r.x + r.w - bw - 2, by = r.y + 4;
+  tft.fillRoundRect(bx, by, bw, bh, 4, cardBG);
+  tft.drawRoundRect(bx, by, bw, bh, 4, selected ? UI_ICON : cardEdge);
+  setLabelFont();
+  tft.setTextColor(textStrong, cardBG);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString(touchLevelName(level), bx + bw/2, by + bh/2, 2);
+  tft.setTextDatum(TL_DATUM);
+  tft.endWrite();
+}
+static void drawTouchRow(uint8_t level, bool selected) {
+  drawCardStatic(ROW_TOUCH, selected);
+  drawTouchWidget(level, selected);
+}
+#endif  // BOARD_TAB5
+
 static Rect backRect(){
   int h = tft.height();
   int bwTotal = SCREEN_W - PAD_X*2;
@@ -1914,6 +1977,9 @@ static void drawAll() {
   drawNeoPixel(s.neopixelEnabled, sel==3);
   bool autoScan = (s.autoWifiScan || s.autoBleScan);
   drawAutoScan(autoScan, sel==4);
+#if defined(BOARD_TAB5)
+  drawTouchRow(s.touchSensitivity, sel==ROW_TOUCH);
+#endif
 
   drawFooter(false, false);
 
@@ -1923,6 +1989,9 @@ static void drawAll() {
   last_accent     = s.accentColor;
   last_neopixel   = s.neopixelEnabled;
   last_autoScan     = autoScan;
+#if defined(BOARD_TAB5)
+  last_touchSens  = s.touchSensitivity;
+#endif
   uiDirty = false;
 }
 
@@ -1943,6 +2012,9 @@ static void redrawIfChanged() {
     drawCardStatic(3, sel==3);  drawSwitchWidgetRow(s.neopixelEnabled, sel==3, 3);
     bool autoScan = (s.autoWifiScan || s.autoBleScan);
     drawCardStatic(4, sel==4);  drawSwitchWidgetRow(autoScan, sel==4, 4);
+#if defined(BOARD_TAB5)
+    drawCardStatic(ROW_TOUCH, sel==ROW_TOUCH);  drawTouchWidget(s.touchSensitivity, sel==ROW_TOUCH);
+#endif
     last_sel = sel;
   } else {
     if (s.brightness != last_brightness) {
@@ -1962,6 +2034,12 @@ static void redrawIfChanged() {
       drawThemeWidget(s.theme, sel==1);
       last_theme = s.theme;
     }
+#if defined(BOARD_TAB5)
+    if (s.touchSensitivity != last_touchSens) {
+      drawTouchWidget(s.touchSensitivity, sel==ROW_TOUCH);
+      last_touchSens = s.touchSensitivity;
+    }
+#endif
   }
 
   uiDirty = false;
@@ -2022,10 +2100,40 @@ static bool applyAutoScan(bool en){
   return true;
 }
 
+#if defined(BOARD_TAB5)
+static bool applyTouchSensitivity(uint8_t level){
+  if (level > 4) level = 4;
+  auto& s = settings();
+  if (s.touchSensitivity == level) return false;
+  s.touchSensitivity = level;
+  ::setTouchSensitivity(level);
+  dirtySettings = true;
+  uiDirty = true;
+  lastChangeMs = millis();
+  return true;
+}
+#endif
+
 static void handleTouch() {
   int tx, ty;
   static uint32_t lastToggleMs = 0;
   static bool accentArmed = true;
+
+  // Continue an in-progress brightness-slider drag with a LEVEL read: readTouchXY
+  // is edge-triggered (reports only the first frame of a press), which would abort
+  // the drag after one frame. The initial tap below is still edge (one per press).
+  if (dragging) {
+    int16_t lx = 0, ly = 0;
+    if (!readTouchRawXY(lx, ly)) { dragging = false; accentArmed = true; return; }
+    auto& s = settings();
+    Rect tr = rBrightTrack();
+    long rel = (long)lx - tr.x;
+    if (rel < 0) rel = 0;
+    if (rel > tr.w - 1) rel = tr.w - 1;
+    applyBrightness((uint8_t)((rel * 255L) / (tr.w - 1)));
+    return;
+  }
+
   if (!readTouchXY(tx, ty)) {
     dragging = false;
     accentArmed = true;
@@ -2136,6 +2244,18 @@ static void handleTouch() {
       }
     }
   }
+#if defined(BOARD_TAB5)
+  else if (sel == ROW_TOUCH) {
+    Rect rr = rowRect(ROW_TOUCH);
+    if (tx >= rr.x && tx <= rr.x+rr.w && ty >= rr.y && ty <= rr.y+rr.h) {
+      uint32_t now = millis();
+      if (now - lastToggleMs > 250) {
+        applyTouchSensitivity((uint8_t)((s.touchSensitivity + 1) % 5));   // tap cycles level
+        lastToggleMs = now;
+      }
+    }
+  }
+#endif
 }
 
 void setup(){
@@ -2190,6 +2310,9 @@ void loop(){
     else if (sel==2)                   { applyAccent((s.accentColor + ACCENT_PRESET_COUNT - 1) % ACCENT_PRESET_COUNT); }
     else if (sel==3)                   { applyNeoPixel(false); }
     else if (sel==4)                   { applyAutoScan(false); }
+#if defined(BOARD_TAB5)
+    else if (sel==ROW_TOUCH && s.touchSensitivity>0) { applyTouchSensitivity(s.touchSensitivity-1); }
+#endif
     changedByButtons=true;
     lastActionMs = now;
   }
@@ -2200,6 +2323,9 @@ void loop(){
     else if (sel==2)                   { applyAccent((s.accentColor + 1) % ACCENT_PRESET_COUNT); }
     else if (sel==3)                   { applyNeoPixel(true); }
     else if (sel==4)                   { applyAutoScan(true); }
+#if defined(BOARD_TAB5)
+    else if (sel==ROW_TOUCH && s.touchSensitivity<4) { applyTouchSensitivity(s.touchSensitivity+1); }
+#endif
     changedByButtons=true;
     lastActionMs = now;
   }
@@ -2259,6 +2385,7 @@ static int touchStartX = 0;
 static int touchStartY = 0;
 static int touchLastY = 0;
 static int scrollAccumY = 0;
+static bool touchPrevDown = false;   // level rising-edge tracker (carry-over guard)
 
 static Button browserBtns[4];
 static Button infoBtns[2];
@@ -3002,6 +3129,12 @@ void setup() {
   cwd = "/";
   sel = 0;
   uiDirty = true;
+  // Start with "finger down" so a still-held selecting tap must release before a
+  // gesture begins here (carry-over guard), matching the edge-triggered nav.
+  touchActive = false;
+  touchDragging = false;
+  scrollAccumY = 0;
+  touchPrevDown = true;
   reloadDir("/", nullptr);
   currentBatteryVoltage = readBatteryVoltage();
   drawStatusBar(currentBatteryVoltage, true);
@@ -3037,8 +3170,16 @@ void loop() {
     return;
   }
 
-  int x, y;
-  bool touched = readTouchXY(x, y);
+  // LEVEL read: this is a drag/tap gesture handler that needs the live position on
+  // every held frame (edge-triggered readTouchXY reports only the first frame, so
+  // a drag could never form). A gesture only STARTS on a rising edge (fresh press),
+  // so a carried-over selecting tap cannot open a file here.
+  int16_t rx = 0, ry = 0;
+  bool touched = readTouchRawXY(rx, ry);
+  const int x = (int)rx, y = (int)ry;
+  const bool rising = touched && !touchPrevDown;
+  touchPrevDown = touched;
+
   if (!touched) {
     if (touchActive && !touchDragging) {
       handleTap(touchStartX, touchStartY);
@@ -3050,6 +3191,9 @@ void loop() {
   }
 
   if (!touchActive) {
+    if (!rising) {
+      return;   // finger already down (e.g. carried-over tap) — wait for a fresh press
+    }
     touchActive = true;
     touchDragging = false;
     touchStartX = x;

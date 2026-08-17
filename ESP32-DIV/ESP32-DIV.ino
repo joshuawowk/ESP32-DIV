@@ -13,7 +13,7 @@
 #include "shared.h"
 #include "utils.h"
 
-#if !BOARD_HAS_ESP32S3
+#if !BOARD_HAS_ESP32S3 && !defined(BOARD_TAB5)
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #endif
@@ -23,7 +23,20 @@ TFT_eSPI tft = TFT_eSPI();
 PCF8574 pcf(PCF8574_I2C_ADDR);
 
 void setBrightness(uint8_t value) {
+#if defined(BOARD_TAB5)
+  // Tab5 backlight is driven through the M5GFX/DSI panel.
+  tft.setBrightness(value);
+#else
   ledcWrite(PWM_CHANNEL, value);
+#endif
+}
+
+void setTouchSensitivity(uint8_t level) {
+#if defined(BOARD_TAB5)
+  tft.setTouchSensitivity(level);   // raises GT911 threshold; RAM-only, re-applied each boot
+#else
+  (void)level;
+#endif
 }
 
 bool feature_exit_requested = false;
@@ -711,20 +724,28 @@ static bool isTouchNavSlotDown(int idx) {
     return false;
   }
 
-  int x = 0;
-  int y = 0;
-  if (!readTouchXYDismiss(x, y)) {
+  // LEVEL read: the button dispatcher calls this once PER SLOT each loop iteration
+  // (isButtonPressed(BTN_LEFT/DOWN/SELECT/UP/RIGHT)), so it must report the current
+  // touch on every call. readTouchXYDismiss is edge-triggered (returns the tap only
+  // on the first call of a press), so only the first slot checked could ever match
+  // — that is why only "Exit" (SELECT, checked first) worked and Scan/Next/Prev/etc
+  // did not. Per-press (one-shot) semantics for the nav buttons come separately from
+  // isTouchNavButtonPressedEdge() via s_touchNavHeld[], which is built to wrap a
+  // LEVEL isTouchNavSlotDown().
+  int16_t tx = 0;
+  int16_t ty = 0;
+  if (!readTouchRawXY(tx, ty)) {
     return false;
   }
 
   layoutTouchNavBtns();
 
   const int stripTop = tft.height() - TOUCH_NAV_BAR_H;
-  if (y < stripTop) {
+  if (ty < stripTop) {
     return false;
   }
 
-  return FeatureUI::hit(s_touchNavBtns, 5, x, y) == idx;
+  return FeatureUI::hit(s_touchNavBtns, 5, (int)tx, (int)ty) == idx;
 }
 
 bool isPhysicalButtonPressed(int buttonPin) {
@@ -831,8 +852,14 @@ bool menu_initialized = false;
 const int COLUMN_WIDTH = 120;
 const int X_OFFSET_LEFT = 10;
 const int X_OFFSET_RIGHT = X_OFFSET_LEFT + COLUMN_WIDTH;
-const int Y_START = 30;
-const int Y_SPACING = 75;
+// Main menu: 2 columns x 4 rows of 100x60 buttons. Spread over the taller Tab5
+// canvas (427) below the 20px status bar: rows at 55/145/235/325 (bottoms up to
+// 385), ~35px top / ~42px bottom margin. (Was 30/75 for the old 320 canvas.)
+const int Y_START = 55;
+const int Y_SPACING = 90;
+// "Other" grid has only 4 items (2 rows); with the shared Y_SPACING it would sit
+// top-heavy, so give it its own start that vertically centers 2 rows on 427.
+const int OTHER_Y_START = 145;
 
 void displayOtherMenuGrid();
 void displayPagedSubmenu();
@@ -991,7 +1018,7 @@ void displayOtherMenuGrid() {
             int column = i % OTHER_GRID_COLS;
             int row = i / OTHER_GRID_COLS;
             int x_position = (column == 0) ? X_OFFSET_LEFT : X_OFFSET_RIGHT;
-            int y_position = Y_START + row * Y_SPACING;
+            int y_position = OTHER_Y_START + row * Y_SPACING;
 
             tft.fillRoundRect(x_position, y_position, 100, 60, 5, UI_FG);
             tft.drawRoundRect(x_position, y_position, 100, 60, 5, UI_LINE);
@@ -1014,7 +1041,7 @@ void displayOtherMenuGrid() {
             int column = i % OTHER_GRID_COLS;
             int row = i / OTHER_GRID_COLS;
             int x_position = (column == 0) ? X_OFFSET_LEFT : X_OFFSET_RIGHT;
-            int y_position = Y_START + row * Y_SPACING;
+            int y_position = OTHER_Y_START + row * Y_SPACING;
 
             if (i == last_other_menu_index) {
                 tft.fillRoundRect(x_position, y_position, 100, 60, 5, UI_FG);
@@ -1033,7 +1060,7 @@ void displayOtherMenuGrid() {
         int column = current_submenu_index % OTHER_GRID_COLS;
         int row = current_submenu_index / OTHER_GRID_COLS;
         int x_position = (column == 0) ? X_OFFSET_LEFT : X_OFFSET_RIGHT;
-        int y_position = Y_START + row * Y_SPACING;
+        int y_position = OTHER_Y_START + row * Y_SPACING;
 
         tft.fillRoundRect(x_position, y_position, 100, 60, 5, UI_FG);
         tft.drawRoundRect(x_position, y_position, 100, 60, 5, UI_ICON);
@@ -4019,7 +4046,7 @@ void handleOtherSubmenuButtons() {
                 int column = i % OTHER_GRID_COLS;
                 int row = i / OTHER_GRID_COLS;
                 int x_position = (column == 0) ? X_OFFSET_LEFT : X_OFFSET_RIGHT;
-                int y_position = Y_START + row * Y_SPACING;
+                int y_position = OTHER_Y_START + row * Y_SPACING;
                 int button_x1 = x_position;
                 int button_y1 = y_position;
                 int button_x2 = x_position + 100;
@@ -4289,7 +4316,7 @@ void handleAboutPage() {
   tftPrintObf(OBF_WB, sizeof(OBF_WB));
 
   tft.setTextColor(UI_DIM_TEXT, UI_BG);
-  tft.setCursor(16, 300);
+  tft.setCursor(16, tft.height() - 20);   // bottom-anchored (300 on 320, 407 on Tab5's 427)
   tft.print("SELECT / tap to go back");
 
   while (!feature_exit_requested) {
@@ -4509,7 +4536,7 @@ void setup() {
   delay(50);
   Serial.println("[boot] start");
 
-#if !BOARD_HAS_ESP32S3
+#if !BOARD_HAS_ESP32S3 && !defined(BOARD_TAB5)
   // Weak USB / backlight load can brownout classic ESP32 during intro.
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 #endif
@@ -4517,8 +4544,10 @@ void setup() {
   tft.init();
   tft.setRotation(TFT_ROTATION);
 
+#if !defined(BOARD_TAB5)
   ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
   ledcAttachPin(BACKLIGHT_PIN, PWM_CHANNEL);
+#endif
   setBrightness(80);
 
   applyThemeToPalette(settings().theme);
@@ -4532,7 +4561,8 @@ void setup() {
 
   initSDCard();
 
-#if BOARD_HAS_ESP32S3
+#if BOARD_HAS_ESP32S3 || defined(BOARD_TAB5)
+  // Tab5 SD (dedicated SPI bus) mounts fine, so load persisted settings.
   settingsLoad();
 #else
   // Avoid SD mount via settingsLoad on v1 (same crash as step 3).
@@ -4541,6 +4571,9 @@ void setup() {
 #endif
   applyThemeToPalette(settings().theme);
   setBrightness(settings().brightness);
+#if defined(BOARD_TAB5)
+  setTouchSensitivity(settings().touchSensitivity);   // apply GT911 threshold (after tft.init)
+#endif
 
 #if HAS_PCF8574_BUTTONS
   if (!initPcf8574Buttons()) {
