@@ -1,0 +1,55 @@
+name: CI
+
+# Common-sense pre-merge checks. Kept deliberately lightweight and
+# hardware-free so they run in seconds and never flake:
+#   1. native-tests   — the divlink protocol / link-server unit tests (pure g++)
+#   2. python-syntax  — byte-compile every tracked Python tool
+#
+# A full ESP32-P4 / Tab5 PlatformIO firmware build is intentionally NOT run
+# here: it pulls a large toolchain, targets engineering-sample silicon, and is
+# too slow/flaky to gate merges on. Build the firmware locally with `pio run`.
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref (e.g. rapid PR pushes).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-tests:
+    name: Native unit tests (divlink)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run headless native tests
+        run: |
+          if [ -f tab5-port/Makefile ]; then
+            make -C tab5-port test-native
+          else
+            echo "tab5-port/ not present on this ref — no native tests to run."
+          fi
+
+  python-syntax:
+    name: Python syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Byte-compile all tracked Python files
+        run: |
+          set -euo pipefail
+          files=$(git ls-files '*.py')
+          if [ -z "$files" ]; then
+            echo "No Python files tracked — nothing to check."
+            exit 0
+          fi
+          echo "Checking:"
+          echo "$files"
+          python -m py_compile $files
